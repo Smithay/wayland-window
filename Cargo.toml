@@ -10,5 +10,4 @@ description = "A simple window-decorations library built on top of wayland-clien
 [dependencies]
 byteorder = "0.3"
 libc = "0.1"
-mmap = "0.1"
 wayland-client = "^0.1.8"

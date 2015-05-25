@@ -1,37 +1,30 @@
 use std::cmp::max;
 use std::ffi::CString;
-use std::io::{Write, Cursor};
 use std::ops::Deref;
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
-use libc::{c_char, c_int, off_t, ftruncate};
+use libc::{c_char, c_int, off_t, size_t, ftruncate, unlink, write, lseek, SEEK_SET};
 
-use mmap::{MemoryMap, MapOption};
-
-use wayland::core::{Buffer, SubSurface, ShellSurface, Surface, WSurface, Registry, ShmPool, ShmFormat, Display};
+use wayland::core::{Buffer, SubSurface, ShellSurface, Surface, WSurface, Registry, ShmPool, ShmFormat};
 
 // The surfaces handling the borders, 8 total, are organised this way:
 //
-//  0 |   1   | 2
+//        0
 // ---|-------|---
 //    |       |
-//  7 | user  | 3
+//  3 | user  | 1
 //    |       |
 // ---|-------|---
-//  6 |   5   | 4
+//        2
 //
-pub const BORDER_TOP_LEFT    : usize = 0;
-pub const BORDER_TOP         : usize = 1;
-pub const BORDER_TOP_RIGHT   : usize = 2;
-pub const BORDER_RIGHT       : usize = 3;
-pub const BORDER_BOTTOM_RIGHT: usize = 4;
-pub const BORDER_BOTTOM      : usize = 5;
-pub const BORDER_BOTTOM_LEFT : usize = 6;
-pub const BORDER_LEFT        : usize = 7;
+pub const BORDER_TOP         : usize = 0;
+pub const BORDER_RIGHT       : usize = 1;
+pub const BORDER_BOTTOM      : usize = 2;
+pub const BORDER_LEFT        : usize = 3;
 
-const DECORATION_SIZE     : usize = 2;
-const DECORATION_TOP_SIZE : usize = 8;
+const DECORATION_SIZE     : usize = 8;
+const DECORATION_TOP_SIZE : usize = 24;
 
 /// A decorated surface, wrapping a wayalnd surface and handling its decorations.
 pub struct DecoratedSurface<S: Surface> {
@@ -40,10 +33,10 @@ pub struct DecoratedSurface<S: Surface> {
     border_surfaces: Vec<SubSurface<WSurface>>,
     buffers: Vec<Buffer>,
     shm_fd: c_int,
-    map: MemoryMap,
     pool: ShmPool,
     height: u32,
-    width: u32
+    width: u32,
+    buffer_capacity: usize
 }
 
 impl<S: Surface> DecoratedSurface<S> {
@@ -79,22 +72,18 @@ impl<S: Surface> DecoratedSurface<S> {
         let pattern = CString::new("wayland-window-rs-XXXXXX").unwrap();
         let fd = unsafe { mkstemp(pattern.as_ptr() as *mut _) };
         if fd < 0 { return Err(user_surface) }
-        unsafe { ftruncate(fd, (pxcount * 4) as off_t); }
-
-        let map = match MemoryMap::new(
-            pxcount * 4,
-            &[MapOption::MapWritable, MapOption::MapFd(fd)]
-        ) {
-            Ok(m) => m,
-            Err(_) => return Err(user_surface)
-        };
+        unsafe {
+            ftruncate(fd, (pxcount * 4) as off_t);
+            unlink(pattern.as_ptr());
+        }
 
         let pool = shm.pool_from_raw_fd(fd, (pxcount * 4) as i32);
 
         // create surfaces
         let main_surface = comp.create_surface();
         let user_subsurface = subcomp.get_subsurface(user_surface, &main_surface);
-        let border_surfaces = (0..8).map(|_|
+        user_subsurface.set_sync(false);
+        let border_surfaces = (0..4).map(|_|
             subcomp.get_subsurface(comp.create_surface(), &main_surface)
         ).collect();
 
@@ -109,8 +98,8 @@ impl<S: Surface> DecoratedSurface<S> {
             height: height,
             width: width,
             shm_fd: fd,
-            map: map,
-            pool: pool
+            pool: pool,
+            buffer_capacity: pxcount * 4
         };
 
         me.resize(width, height);
@@ -119,113 +108,91 @@ impl<S: Surface> DecoratedSurface<S> {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        let new_pxcount = max(DECORATION_TOP_SIZE * DECORATION_SIZE,
+        let new_pxcount = max(DECORATION_TOP_SIZE * (DECORATION_SIZE * 2 + (width as usize)),
             max(DECORATION_TOP_SIZE * (width as usize), DECORATION_SIZE * (height as usize))
         );
-        if new_pxcount * 4 > self.map.len() {
+        if new_pxcount * 4 > self.buffer_capacity {
             // reallocation needed !
             unsafe { ftruncate(self.shm_fd, (new_pxcount * 4) as off_t) };
-            let new_map = MemoryMap::new(
-                new_pxcount * 4,
-                &[MapOption::MapWritable, MapOption::MapFd(self.shm_fd)]
-            ).unwrap(); // possible to do better ?
-            // drop the old mmap
-            let _ = ::std::mem::replace(&mut self.map, new_map);
             self.pool.resize((new_pxcount * 4) as i32);
+            self.buffer_capacity = new_pxcount * 4;
         }
         self.width = width;
         self.height = height;
         // rewrite the data
         {
-            let mut pool_data: Cursor<&mut [u8]> = Cursor::new(unsafe {
-                ::std::slice::from_raw_parts_mut(self.map.data(), self.map.len())
-            });
-            for _ in 0..new_pxcount {
+            let mut new_data = Vec::<u8>::with_capacity(new_pxcount * 4);
+            for _ in 0..(new_pxcount*4) {
                 // write a dark gray
-                let _ = pool_data.write_u32::<NativeEndian>(0xFFFFFFFF);
+                let _ = new_data.write_u32::<NativeEndian>(0xFF444444);
             }
-            let _ = pool_data.flush();
+            unsafe {
+                lseek(self.shm_fd, 0, SEEK_SET);
+                write(self.shm_fd, new_data.as_ptr() as *const _, new_data.len() as size_t);
+            }
         }
+
+        //drop(mmap);
         
         // resize the borders
         self.buffers.clear();
-        // top-left
-        {
-            let buffer = self.pool.create_buffer(
-                0, DECORATION_SIZE as i32, DECORATION_TOP_SIZE as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_TOP_LEFT].attach(&buffer, 0, 0);
-            self.buffers.push(buffer);
-        }
         // top
         {
             let buffer = self.pool.create_buffer(
-                0, self.width as i32, DECORATION_TOP_SIZE as i32, (self.width*4) as i32,
+                0,
+                self.width as i32 + (DECORATION_SIZE as i32) * 2,
+                DECORATION_TOP_SIZE as i32, (self.width*4) as i32,
                 ShmFormat::WL_SHM_FORMAT_ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_TOP].attach(&buffer, 0, 0);
-            self.buffers.push(buffer);
-        }
-        // top-right
-        {
-            let buffer = self.pool.create_buffer(
-                0, DECORATION_SIZE as i32, DECORATION_TOP_SIZE as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_TOP_RIGHT].attach(&buffer, 0, 0);
+            self.border_surfaces[BORDER_TOP].set_position(0, 0);
             self.buffers.push(buffer);
         }
         // right
         {
             let buffer = self.pool.create_buffer(
-                0, DECORATION_SIZE as i32, self.height as i32, (DECORATION_SIZE*4) as i32,
+                0, DECORATION_SIZE as i32,
+                self.height as i32, (DECORATION_SIZE*4) as i32,
                 ShmFormat::WL_SHM_FORMAT_ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_RIGHT].attach(&buffer, 0, 0);
-            self.buffers.push(buffer);
-        }
-        // bottom-right
-        {
-            let buffer = self.pool.create_buffer(
-                0, DECORATION_SIZE as i32, DECORATION_SIZE as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_BOTTOM_RIGHT].attach(&buffer, 0, 0);
+            self.border_surfaces[BORDER_RIGHT].set_position(
+                DECORATION_SIZE as i32 + self.width as i32, DECORATION_TOP_SIZE as i32);
             self.buffers.push(buffer);
         }
         // bottom
         {
             let buffer = self.pool.create_buffer(
-                0, self.width as i32, DECORATION_SIZE as i32, (self.width*4) as i32,
+                0,
+                self.width as i32 + (DECORATION_SIZE as i32) * 2,
+                DECORATION_SIZE as i32, (self.width*4) as i32,
                 ShmFormat::WL_SHM_FORMAT_ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_BOTTOM].attach(&buffer, 0, 0);
-            self.buffers.push(buffer);
-        }
-        // bottom-left
-        {
-            let buffer = self.pool.create_buffer(
-                0, DECORATION_SIZE as i32, DECORATION_SIZE as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_BOTTOM_LEFT].attach(&buffer, 0, 0);
+            self.border_surfaces[BORDER_BOTTOM].set_position(
+                0,
+                DECORATION_TOP_SIZE as i32 + self.height as i32);
             self.buffers.push(buffer);
         }
         // left
         {
             let buffer = self.pool.create_buffer(
-                0, DECORATION_SIZE as i32, self.height as i32, (DECORATION_SIZE*4) as i32,
+                0, DECORATION_SIZE as i32,
+                self.height as i32, (DECORATION_SIZE*4) as i32,
                 ShmFormat::WL_SHM_FORMAT_ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_LEFT].attach(&buffer, 0, 0);
+            self.border_surfaces[BORDER_LEFT].set_position(0,
+                DECORATION_TOP_SIZE as i32);
             self.buffers.push(buffer);
         }
         for s in &self.border_surfaces { s.commit(); }
 
+        self.user_surface.set_position(DECORATION_SIZE as i32, DECORATION_TOP_SIZE as i32);
+
         {
             let buffer = self.pool.create_buffer(
-                0, 10, 10, 40,
+                0, 1, 1, 4,
                 ShmFormat::WL_SHM_FORMAT_ARGB8888
             ).unwrap();
             self.shell_surface.attach(&buffer, 0, 0);

@@ -25,7 +25,6 @@ fn main() {
 
     // first, create the shell surface
     let surface = compositor.create_surface();
-    let shell = registry.get_shell().expect("Unable to get the shell.");
 
     // then obtain a buffer to store contents
     let shm = registry.get_shm().expect("Unable to get the shm.");
@@ -44,9 +43,17 @@ fn main() {
     let buffer = pool.create_buffer(0, 100, 100, 400, ShmFormat::WL_SHM_FORMAT_ARGB8888)
                      .expect("Could not create buffer.");
 
-    let window = DecoratedSurface::new(surface, 100, 100, &registry);
+    let window = match DecoratedSurface::new(surface, 100, 100, &registry) {
+        Ok(w) => w,
+        Err(_) => panic!("ERROR")
+    };
+
+    window.attach(&buffer,0,0);
+    window.commit();
 
     display.sync_roundtrip();
 
-    loop {}
+    loop {
+        //display.dispatch();
+    }
 }
