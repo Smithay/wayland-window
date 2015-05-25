@@ -1,3 +1,6 @@
+extern crate byteorder;
+extern crate libc;
+extern crate mmap;
 extern crate wayland_client as wayland;
 
 mod decorated_surface;
