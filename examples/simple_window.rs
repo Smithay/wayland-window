@@ -22,12 +22,11 @@ fn main() {
     display.sync_roundtrip();
 
     let compositor = registry.get_compositor().expect("Unable to get the compositor.");
-
-    // first, create the shell surface
     let surface = compositor.create_surface();
-
-    // then obtain a buffer to store contents
     let shm = registry.get_shm().expect("Unable to get the shm.");
+    let seats = registry.get_seats();
+
+    display.sync_roundtrip();
 
     // Not a good way to create a shared buffer, but this will do for this example.
     let mut tmp = OpenOptions::new().read(true).write(true).create(true).truncate(true)
@@ -43,10 +42,12 @@ fn main() {
     let buffer = pool.create_buffer(0, 100, 100, 400, ShmFormat::WL_SHM_FORMAT_ARGB8888)
                      .expect("Could not create buffer.");
 
-    let window = match DecoratedSurface::new(surface, 100, 100, &registry) {
+    let window = match DecoratedSurface::new(surface, 100, 100, &registry, seats.first()) {
         Ok(w) => w,
         Err(_) => panic!("ERROR")
     };
+
+
 
     window.attach(&buffer,0,0);
     window.commit();
@@ -54,6 +55,6 @@ fn main() {
     display.sync_roundtrip();
 
     loop {
-        //display.dispatch();
+        display.dispatch();
     }
 }
