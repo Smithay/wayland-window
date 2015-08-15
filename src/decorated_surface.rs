@@ -7,9 +7,12 @@ use byteorder::{WriteBytesExt, NativeEndian};
 
 use libc::{c_char, c_int, off_t, size_t, ftruncate, unlink, write, lseek, SEEK_SET};
 
-use wayland::core::{Buffer, SubSurface, ShellSurface, Surface, WSurface, Seat,
-                    Registry, ShmPool, ShmFormat, Pointer, ShellSurfaceResize,
-                    SurfaceId};
+use wayland::core::{Surface, Registry};
+use wayland::core::compositor::{WSurface, SurfaceId};
+use wayland::core::seat::{Seat, Pointer};
+use wayland::core::shell::{ShellSurface, ShellSurfaceResize};
+use wayland::core::shm::{Buffer, ShmPool, ShmFormat};
+use wayland::core::subcompositor::SubSurface;
 
 // The surfaces handling the borders, 8 total, are organised this way:
 //
@@ -49,7 +52,8 @@ struct DecoratedInternals {
     buffer_capacity: usize,
     pointer: Option<Pointer<WSurface>>,
     configure_user_callback: Box<Fn(ShellSurfaceResize, i32, i32) + 'static + Send + Sync>,
-    current_pointer_location: PtrLocation
+    current_pointer_location: PtrLocation,
+    current_pointer_coordinates: (f64, f64)
 }
 
 impl DecoratedInternals {
@@ -88,7 +92,7 @@ impl DecoratedInternals {
                 0,
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
                 DECORATION_TOP_SIZE as i32, (self.width*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
+                ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_TOP].attach(&buffer, 0, 0);
             self.border_surfaces[BORDER_TOP].set_position(0, 0);
@@ -99,7 +103,7 @@ impl DecoratedInternals {
             let buffer = self.pool.create_buffer(
                 0, DECORATION_SIZE as i32,
                 self.height as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
+                ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_RIGHT].attach(&buffer, 0, 0);
             self.border_surfaces[BORDER_RIGHT].set_position(
@@ -112,7 +116,7 @@ impl DecoratedInternals {
                 0,
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
                 DECORATION_SIZE as i32, (self.width*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
+                ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_BOTTOM].attach(&buffer, 0, 0);
             self.border_surfaces[BORDER_BOTTOM].set_position(
@@ -125,7 +129,7 @@ impl DecoratedInternals {
             let buffer = self.pool.create_buffer(
                 0, DECORATION_SIZE as i32,
                 self.height as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
+                ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_LEFT].attach(&buffer, 0, 0);
             self.border_surfaces[BORDER_LEFT].set_position(0,
@@ -138,7 +142,7 @@ impl DecoratedInternals {
         {
             let buffer = self.pool.create_buffer(
                 0, 1, 1, 4,
-                ShmFormat::WL_SHM_FORMAT_ARGB8888
+                ShmFormat::ARGB8888
             ).unwrap();
             self.shell_surface.attach(&buffer, 0, 0);
             self.buffers.push(buffer);
@@ -247,7 +251,8 @@ impl<S: Surface> DecoratedSurface<S> {
             buffer_capacity: pxcount * 4,
             pointer: pointer,
             configure_user_callback: Box::new(move |_,_,_| {}),
-            current_pointer_location: PtrLocation::None
+            current_pointer_location: PtrLocation::None,
+            current_pointer_coordinates: (0., 0.)
         }));
 
         {
@@ -267,25 +272,23 @@ impl<S: Surface> DecoratedSurface<S> {
 
             if let Some(ref mut pointer) = internals_guard.pointer.as_mut() {
                 let my_internals = internals.clone();
-                pointer.set_enter_action(move |_pid, sid, x, y| {
+                pointer.set_enter_action(move |_pid, _serial, sid, x, y| {
                     let mut guard = my_internals.lock().unwrap();
                     guard.pointer_entered(sid);
-                    println!("Pointer entered at ({},{}) on {:?}.",
-                        x, y, guard.current_pointer_location);
+                    guard.current_pointer_coordinates = (x, y);
                 });
 
                 let my_internals = internals.clone();
-                pointer.set_leave_action(move |_pid, _sid| {
+                pointer.set_leave_action(move |_pid, _serial, _sid| {
                     let mut guard = my_internals.lock().unwrap();
                     guard.pointer_left();
-                    println!("Pointer left.");
+                    guard.current_pointer_coordinates = (0., 0.);
                 });
 
                 let my_internals = internals.clone();
                 pointer.set_motion_action(move |_pid, _t, x, y| {
-                    let guard = my_internals.lock().unwrap();
-                    println!("Pointer moved to ({},{}) on {:?}.",
-                        x, y, guard.current_pointer_location);
+                    let mut guard = my_internals.lock().unwrap();
+                    guard.current_pointer_coordinates = (x, y);
                 })
             }
 
