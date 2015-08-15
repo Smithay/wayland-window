@@ -1,5 +1,5 @@
 extern crate byteorder;
-extern crate libc;
+extern crate tempfile;
 extern crate wayland_client as wayland;
 
 mod decorated_surface;

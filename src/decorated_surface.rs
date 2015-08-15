@@ -1,11 +1,11 @@
 use std::cmp::max;
-use std::ffi::CString;
+use std::io::{Seek, SeekFrom, Write};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
-use libc::{c_char, c_int, off_t, size_t, ftruncate, unlink, write, lseek, SEEK_SET};
+use tempfile::TempFile;
 
 use wayland::core::{Surface, Registry};
 use wayland::core::compositor::{WSurface, SurfaceId};
@@ -45,7 +45,7 @@ struct DecoratedInternals {
     shell_surface: ShellSurface<WSurface>,
     border_surfaces: Vec<SubSurface<WSurface>>,
     buffers: Vec<Buffer>,
-    shm_fd: c_int,
+    tempfile: TempFile,
     pool: ShmPool,
     height: u32,
     width: u32,
@@ -63,27 +63,19 @@ impl DecoratedInternals {
         );
         if new_pxcount * 4 > self.buffer_capacity {
             // reallocation needed !
-            unsafe { ftruncate(self.shm_fd, (new_pxcount * 4) as off_t) };
+            self.tempfile.set_len((new_pxcount * 4) as u64).unwrap();
             self.pool.resize((new_pxcount * 4) as i32);
             self.buffer_capacity = new_pxcount * 4;
         }
         self.width = width;
         self.height = height;
         // rewrite the data
-        {
-            let mut new_data = Vec::<u8>::with_capacity(new_pxcount * 4);
-            for _ in 0..(new_pxcount*4) {
-                // write a dark gray
-                let _ = new_data.write_u32::<NativeEndian>(0xFF444444);
-            }
-            unsafe {
-                lseek(self.shm_fd, 0, SEEK_SET);
-                write(self.shm_fd, new_data.as_ptr() as *const _, new_data.len() as size_t);
-            }
+        self.tempfile.seek(SeekFrom::Start(0)).unwrap();
+        for _ in 0..(new_pxcount*4) {
+            // write a dark gray
+            let _ = self.tempfile.write_u32::<NativeEndian>(0xFF444444);
         }
-
-        //drop(mmap);
-        
+        self.tempfile.flush().unwrap();
         // resize the borders
         self.buffers.clear();
         // top
@@ -206,15 +198,17 @@ impl<S: Surface> DecoratedSurface<S> {
             max(DECORATION_TOP_SIZE * (width as usize), DECORATION_SIZE * (height as usize))
         );
 
-        let pattern = CString::new("wayland-window-rs-XXXXXX").unwrap();
-        let fd = unsafe { mkstemp(pattern.as_ptr() as *mut _) };
-        if fd < 0 { return Err(user_surface) }
-        unsafe {
-            ftruncate(fd, (pxcount * 4) as off_t);
-            unlink(pattern.as_ptr());
-        }
+        let tempfile = match TempFile::new() {
+            Ok(t) => t,
+            Err(_) => return Err(user_surface)
+        };
 
-        let pool = shm.pool_from_raw_fd(fd, (pxcount * 4) as i32);
+        match tempfile.set_len((pxcount *4) as u64) {
+            Ok(()) => {},
+            Err(_) => return Err(user_surface)
+        };
+
+        let pool = shm.pool_from_fd(&tempfile, (pxcount * 4) as i32);
 
         // create surfaces
         let main_surface = comp.create_surface();
@@ -246,7 +240,7 @@ impl<S: Surface> DecoratedSurface<S> {
             buffers: Vec::new(),
             height: height,
             width: width,
-            shm_fd: fd,
+            tempfile: tempfile,
             pool: pool,
             buffer_capacity: pxcount * 4,
             pointer: pointer,
@@ -320,8 +314,4 @@ impl<S: Surface> Deref for DecoratedSurface<S> {
     fn deref(&self) -> &S {
         &*self.user_surface
     }
-}
-
-extern {
-    fn mkstemp(template: *mut c_char) -> c_int;
 }
