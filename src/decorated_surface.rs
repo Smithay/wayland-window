@@ -1,7 +1,7 @@
 use std::cmp::max;
 use std::io::{Seek, SeekFrom, Write};
-use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
@@ -9,7 +9,7 @@ use tempfile::TempFile;
 
 use wayland::core::{Surface, Registry};
 use wayland::core::compositor::{WSurface, SurfaceId};
-use wayland::core::seat::{Seat, Pointer};
+use wayland::core::seat::{Seat, Pointer, ButtonState};
 use wayland::core::shell::{ShellSurface, ShellSurfaceResize};
 use wayland::core::shm::{Buffer, ShmPool, ShmFormat};
 use wayland::core::subcompositor::SubSurface;
@@ -41,8 +41,36 @@ enum PtrLocation {
     Left
 }
 
-struct DecoratedInternals {
-    shell_surface: ShellSurface<WSurface>,
+struct PointerState {
+    surfaces: Vec<SurfaceId>,
+    location: PtrLocation,
+    coordinates: (f64, f64),
+    surface_width: u32,
+}
+
+impl PointerState {
+    fn pointer_entered(&mut self, sid: SurfaceId) {
+        if self.surfaces[BORDER_TOP] == sid {
+            self.location = PtrLocation::Top;
+        } else if self.surfaces[BORDER_RIGHT] == sid {
+            self.location = PtrLocation::Right
+        } else if self.surfaces[BORDER_BOTTOM] == sid {
+            self.location = PtrLocation::Bottom;
+        } else if self.surfaces[BORDER_LEFT] == sid {
+            self.location = PtrLocation::Left
+        } else {
+            // should probably never happen ?
+            self.location = PtrLocation::None;
+        }
+    }
+
+    fn pointer_left(&mut self) {
+        self.location = PtrLocation::None;
+    }
+}
+
+pub struct DecoratedSurface<S: Surface> {
+    shell_surface: Arc<Mutex<Option<ShellSurface<S>>>>,
     border_surfaces: Vec<SubSurface<WSurface>>,
     buffers: Vec<Buffer>,
     tempfile: TempFile,
@@ -50,14 +78,29 @@ struct DecoratedInternals {
     height: u32,
     width: u32,
     buffer_capacity: usize,
-    pointer: Option<Pointer<WSurface>>,
-    configure_user_callback: Box<Fn(ShellSurfaceResize, i32, i32) + 'static + Send + Sync>,
-    current_pointer_location: PtrLocation,
-    current_pointer_coordinates: (f64, f64)
+    _pointer: Option<Pointer<WSurface>>,
+    pointer_state: Arc<Mutex<PointerState>>
 }
 
-impl DecoratedInternals {
-    fn resize(&mut self, width: u32, height: u32) {
+pub struct SurfaceGuard<'a, S: Surface + 'a> {
+    guard: MutexGuard<'a, Option<ShellSurface<S>>>
+}
+
+impl<'a, S: Surface + 'a> Deref for SurfaceGuard<'a, S> {
+    type Target = ShellSurface<S>;
+    fn deref(&self) -> &ShellSurface<S> {
+        self.guard.as_ref().unwrap()
+    }
+}
+
+impl<'a, S: Surface + 'a> DerefMut for SurfaceGuard<'a, S> {
+    fn deref_mut(&mut self) -> &mut ShellSurface<S> {
+        self.guard.as_mut().unwrap()
+    }
+}
+
+impl<S: Surface + Send + 'static> DecoratedSurface<S> {
+    pub fn resize(&mut self, width: u32, height: u32) {
         let new_pxcount = max(DECORATION_TOP_SIZE * (DECORATION_SIZE * 2 + (width as usize)),
             max(DECORATION_TOP_SIZE * (width as usize), DECORATION_SIZE * (height as usize))
         );
@@ -69,6 +112,7 @@ impl DecoratedInternals {
         }
         self.width = width;
         self.height = height;
+        self.pointer_state.lock().unwrap().surface_width = width;
         // rewrite the data
         self.tempfile.seek(SeekFrom::Start(0)).unwrap();
         for _ in 0..(new_pxcount*4) {
@@ -83,11 +127,15 @@ impl DecoratedInternals {
             let buffer = self.pool.create_buffer(
                 0,
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
-                DECORATION_TOP_SIZE as i32, (self.width*4) as i32,
+                DECORATION_TOP_SIZE as i32,
+                (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
                 ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_TOP].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_TOP].set_position(0, 0);
+            self.border_surfaces[BORDER_TOP].set_position(
+                -(DECORATION_SIZE as i32),
+                -(DECORATION_TOP_SIZE as i32)
+            );
             self.buffers.push(buffer);
         }
         // right
@@ -98,8 +146,7 @@ impl DecoratedInternals {
                 ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_RIGHT].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_RIGHT].set_position(
-                DECORATION_SIZE as i32 + self.width as i32, DECORATION_TOP_SIZE as i32);
+            self.border_surfaces[BORDER_RIGHT].set_position(self.width as i32, 0);
             self.buffers.push(buffer);
         }
         // bottom
@@ -107,13 +154,12 @@ impl DecoratedInternals {
             let buffer = self.pool.create_buffer(
                 0,
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
-                DECORATION_SIZE as i32, (self.width*4) as i32,
+                DECORATION_SIZE as i32,
+                (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
                 ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_BOTTOM].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_BOTTOM].set_position(
-                0,
-                DECORATION_TOP_SIZE as i32 + self.height as i32);
+            self.border_surfaces[BORDER_BOTTOM].set_position(-(DECORATION_SIZE as i32), self.height as i32);
             self.buffers.push(buffer);
         }
         // left
@@ -124,51 +170,13 @@ impl DecoratedInternals {
                 ShmFormat::ARGB8888
             ).unwrap();
             self.border_surfaces[BORDER_LEFT].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_LEFT].set_position(0,
-                DECORATION_TOP_SIZE as i32);
+            self.border_surfaces[BORDER_LEFT].set_position(-(DECORATION_SIZE as i32), 0);
             self.buffers.push(buffer);
         }
 
         for s in &self.border_surfaces { s.commit(); }
-
-        {
-            let buffer = self.pool.create_buffer(
-                0, 1, 1, 4,
-                ShmFormat::ARGB8888
-            ).unwrap();
-            self.shell_surface.attach(&buffer, 0, 0);
-            self.buffers.push(buffer);
-            self.shell_surface.commit();
-        }
     }
 
-    fn pointer_entered(&mut self, sid: SurfaceId) {
-        if self.border_surfaces[BORDER_TOP].get_id() == sid {
-            self.current_pointer_location = PtrLocation::Top;
-        } else if self.border_surfaces[BORDER_RIGHT].get_id() == sid {
-            self.current_pointer_location = PtrLocation::Right
-        } else if self.border_surfaces[BORDER_BOTTOM].get_id() == sid {
-            self.current_pointer_location = PtrLocation::Bottom;
-        } else if self.border_surfaces[BORDER_LEFT].get_id() == sid {
-            self.current_pointer_location = PtrLocation::Left
-        } else {
-            // should probably never happen ?
-            self.current_pointer_location = PtrLocation::None;
-        }
-    }
-
-    fn pointer_left(&mut self) {
-        self.current_pointer_location = PtrLocation::None;
-    }
-}
-
-/// A decorated surface, wrapping a wayalnd surface and handling its decorations.
-pub struct DecoratedSurface<S: Surface> {
-    internals: Arc<Mutex<DecoratedInternals>>,
-    user_surface: SubSurface<S>,
-}
-
-impl<S: Surface> DecoratedSurface<S> {
     /// Creates a new decorated window around given surface.
     ///
     /// If the creation failed (likely if the registry was not ready), hands back the surface.
@@ -211,86 +219,121 @@ impl<S: Surface> DecoratedSurface<S> {
         let pool = shm.pool_from_fd(&tempfile, (pxcount * 4) as i32);
 
         // create surfaces
-        let main_surface = comp.create_surface();
-        let user_subsurface = subcomp.get_subsurface(user_surface, &main_surface);
-        user_subsurface.set_sync(false);
         let border_surfaces: Vec<_> = (0..4).map(|_|
-            subcomp.get_subsurface(comp.create_surface(), &main_surface)
+            subcomp.get_subsurface(comp.create_surface(), user_surface.get_wsurface())
         ).collect();
+        for s in &border_surfaces { s.set_sync(false) }
 
-        let shell_surface = shell.get_shell_surface(main_surface);
+        let shell_surface = shell.get_shell_surface(user_surface);
         shell_surface.set_toplevel();
 
         // Pointer
-        let pointer = seat.and_then(|seat| seat.get_pointer())
+        let mut pointer_state = PointerState {
+            surfaces: Vec::with_capacity(4),
+            location: PtrLocation::None,
+            coordinates: (0., 0.),
+            surface_width: width
+        };
+        let mut pointer = seat.and_then(|seat| seat.get_pointer())
                           .map(|mut pointer| {
             // let (mut pointer, _) = pointer.set_cursor(Some(comp.create_surface()), (0,0));
             for s in &border_surfaces {
                 pointer.add_handled_surface(s.get_id());
+                pointer_state.surfaces.push(s.get_id());
             }
             pointer
         });
+        let pointer_state = Arc::new(Mutex::new(pointer_state));
 
-        // place the user surface
-        user_subsurface.set_position(DECORATION_SIZE as i32, DECORATION_TOP_SIZE as i32);
+        let shell_surface = Arc::new(Mutex::new(Some(shell_surface)));
 
-        let internals = Arc::new(Mutex::new(DecoratedInternals {
-            shell_surface: shell_surface,
-            border_surfaces: border_surfaces,
-            buffers: Vec::new(),
-            height: height,
-            width: width,
-            tempfile: tempfile,
-            pool: pool,
-            buffer_capacity: pxcount * 4,
-            pointer: pointer,
-            configure_user_callback: Box::new(move |_,_,_| {}),
-            current_pointer_location: PtrLocation::None,
-            current_pointer_coordinates: (0., 0.)
-        }));
-
-        {
-
-            let mut internals_guard = internals.lock().unwrap();
-            let my_internals = internals.clone();
-
-            internals_guard.shell_surface.set_configure_callback(move |resizedir, width, height| {
-                let mut guard = my_internals.lock().unwrap();
-                guard.resize(width as u32, height as u32);
-                (guard.configure_user_callback)(
-                    resizedir,
-                    width - (DECORATION_SIZE*2) as i32,
-                    height - (DECORATION_SIZE + DECORATION_TOP_SIZE) as i32
-                );
+        if let Some(ref mut pointer) = pointer {
+            let my_pointer = pointer_state.clone();
+            pointer.set_enter_action(move |_pid, _serial, sid, x, y| {
+                let mut guard = my_pointer.lock().unwrap();
+                guard.pointer_entered(sid);
+                guard.coordinates = (x, y);
             });
 
-            if let Some(ref mut pointer) = internals_guard.pointer.as_mut() {
-                let my_internals = internals.clone();
-                pointer.set_enter_action(move |_pid, _serial, sid, x, y| {
-                    let mut guard = my_internals.lock().unwrap();
-                    guard.pointer_entered(sid);
-                    guard.current_pointer_coordinates = (x, y);
-                });
+            let my_pointer = pointer_state.clone();
+            pointer.set_leave_action(move |_pid, _serial, _sid| {
+                let mut guard = my_pointer.lock().unwrap();
+                guard.pointer_left();
+                guard.coordinates = (0., 0.);
+            });
 
-                let my_internals = internals.clone();
-                pointer.set_leave_action(move |_pid, _serial, _sid| {
-                    let mut guard = my_internals.lock().unwrap();
-                    guard.pointer_left();
-                    guard.current_pointer_coordinates = (0., 0.);
-                });
+            let my_pointer = pointer_state.clone();
+            pointer.set_motion_action(move |_pid, _t, x, y| {
+                let mut guard = my_pointer.lock().unwrap();
+                guard.coordinates = (x, y);
+            });
 
-                let my_internals = internals.clone();
-                pointer.set_motion_action(move |_pid, _t, x, y| {
-                    let mut guard = my_internals.lock().unwrap();
-                    guard.current_pointer_coordinates = (x, y);
-                })
-            }
-
+            let my_pointer = pointer_state.clone();
+            let my_seat = pointer.get_seat().clone();
+            let my_shell = shell_surface.clone();
+            pointer.set_button_action(move |_pid, serial, _t, button, state| {
+                if button != 0x110 { return; }
+                if state != ButtonState::Pressed { return; }
+                let pguard = my_pointer.lock().unwrap();
+                let sguard = my_shell.lock().unwrap();
+                let shell = match sguard.as_ref() {
+                    Some(s) => s,
+                    None => return
+                };
+                let (x, y) = pguard.coordinates;
+                let w = pguard.surface_width;
+                let (direction, resize) = match pguard.location {
+                    PtrLocation::Top => {
+                        if y < DECORATION_SIZE as f64 {
+                            if x < DECORATION_SIZE as f64 {
+                                (ShellSurfaceResize::TopLeft, true)
+                            } else if x > w as f64 + DECORATION_SIZE as f64 {
+                                (ShellSurfaceResize::TopRight, true)
+                            } else {
+                                (ShellSurfaceResize::Top, true)
+                            }
+                        } else {
+                            if x < DECORATION_SIZE as f64 {
+                                (ShellSurfaceResize::Left, true)
+                            } else if x > w as f64 + DECORATION_SIZE as f64 {
+                                (ShellSurfaceResize::Right, true)
+                            } else {
+                                (ShellSurfaceResize::None, false)
+                            }
+                        }
+                    },
+                    PtrLocation::Bottom => {
+                        if x < DECORATION_SIZE as f64 {
+                            (ShellSurfaceResize::BottomLeft, true)
+                        } else if x > w as f64 + DECORATION_SIZE as f64 {
+                            (ShellSurfaceResize::BottomRight, true)
+                        } else {
+                            (ShellSurfaceResize::Bottom, true)
+                        }
+                    },
+                    PtrLocation::Left => (ShellSurfaceResize::Left, true),
+                    PtrLocation::Right => (ShellSurfaceResize::Right, true),
+                    PtrLocation::None => (ShellSurfaceResize::None, true)
+                };
+                if resize {
+                    shell.start_resize(&my_seat, serial, direction);
+                } else {
+                    shell.start_move(&my_seat, serial);
+                }
+            });
         }
 
         let mut me = DecoratedSurface {
-            user_surface: user_subsurface,
-            internals: internals
+            shell_surface: shell_surface,
+            border_surfaces: border_surfaces,
+            buffers: Vec::new(),
+            tempfile: tempfile,
+            pool: pool,
+            height: height,
+            width: width,
+            buffer_capacity: pxcount * 4,
+            _pointer: pointer,
+            pointer_state: pointer_state
         };
 
         me.resize(width, height);
@@ -298,20 +341,21 @@ impl<S: Surface> DecoratedSurface<S> {
         Ok(me)
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
-        let mut internals = self.internals.lock().unwrap();
-        internals.resize(width, height);
+    pub fn get_shell(&self) -> SurfaceGuard<S> {
+        SurfaceGuard {
+            guard: self.shell_surface.lock().unwrap()
+        }
     }
 
-    /// Destroys the decorated window and gives back the wrapped surface.
-    pub fn unwrap(self) -> S {
-        self.user_surface.destroy()
+    // Destroys the DecoratedSurface and returns the wrapped surface
+    pub fn destroy(self) -> S {
+        self.shell_surface.lock().unwrap().take().unwrap().destroy()
     }
 }
 
-impl<S: Surface> Deref for DecoratedSurface<S> {
-    type Target = S;
-    fn deref(&self) -> &S {
-        &*self.user_surface
-    }
+pub fn substract_borders(width: i32, height: i32) -> (i32, i32) {
+    (
+        width - 2*(DECORATION_SIZE as i32),
+        height - DECORATION_SIZE as i32 - DECORATION_TOP_SIZE as i32
+    )
 }
