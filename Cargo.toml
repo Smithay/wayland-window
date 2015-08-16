@@ -5,7 +5,7 @@ authors = ["Victor Berger <victor.berger@m4x.org>"]
 repository = "https://github.com/vberger/wayland-window"
 documentation = "http://vberger.github.io/wayland-window/wayland_window/"
 license = "MIT"
-description = "A simple window-decorations library built on top of wayland-client."
+description = "A minimalistic window-decorations library built on top of wayland-client."
 
 [dependencies]
 byteorder = "0.3"

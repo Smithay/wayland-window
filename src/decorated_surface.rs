@@ -69,6 +69,15 @@ impl PointerState {
     }
 }
 
+/// A wrapper for a decorated surface.
+///
+/// This is the main object of this crate. It wraps a user provided
+/// wayland surface into a `ShellSurface` and gives you acces to it
+/// via the `.get_shell()` method.
+///
+/// It also handles the drawing of minimalistic borders allowing the
+/// resizing and moving of the window. See the root documentation of
+/// this crate for explanations about how to use it.
 pub struct DecoratedSurface<S: Surface> {
     shell_surface: Arc<Mutex<Option<ShellSurface<S>>>>,
     border_surfaces: Vec<SubSurface<WSurface>>,
@@ -82,6 +91,11 @@ pub struct DecoratedSurface<S: Surface> {
     pointer_state: Arc<Mutex<PointerState>>
 }
 
+/// A wrapper around a reference to the surface you
+/// stored in a `DecoratedSurface`.
+///
+/// It allows you to access the `ShellSurface` object via deref
+/// (and thus the surface itself as well).
 pub struct SurfaceGuard<'a, S: Surface + 'a> {
     guard: MutexGuard<'a, Option<ShellSurface<S>>>
 }
@@ -100,6 +114,10 @@ impl<'a, S: Surface + 'a> DerefMut for SurfaceGuard<'a, S> {
 }
 
 impl<S: Surface + Send + 'static> DecoratedSurface<S> {
+    /// Resizes the borders to given width and height.
+    ///
+    /// These values should be the dimentions of the internal surface of the
+    /// window (the decorated window will thus be a little larger).
     pub fn resize(&mut self, width: u32, height: u32) {
         let new_pxcount = max(DECORATION_TOP_SIZE * (DECORATION_SIZE * 2 + (width as usize)),
             max(DECORATION_TOP_SIZE * (width as usize), DECORATION_SIZE * (height as usize))
@@ -341,18 +359,25 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
         Ok(me)
     }
 
+    /// Creates a guard giving you access to the shell surface wrapped
+    /// in this object.
+    ///
+    /// Calling for a processing of the events from the wayland server
+    /// (via `Display::dispatch()` for example) while this guard is in
+    /// scope may result in a deadlock.
     pub fn get_shell(&self) -> SurfaceGuard<S> {
         SurfaceGuard {
             guard: self.shell_surface.lock().unwrap()
         }
     }
 
-    // Destroys the DecoratedSurface and returns the wrapped surface
+    /// Destroys the DecoratedSurface and returns the wrapped surface
     pub fn destroy(self) -> S {
         self.shell_surface.lock().unwrap().take().unwrap().destroy()
     }
 }
 
+/// Substracts the border dimensions from the given dimensions.
 pub fn substract_borders(width: i32, height: i32) -> (i32, i32) {
     (
         width - 2*(DECORATION_SIZE as i32),
