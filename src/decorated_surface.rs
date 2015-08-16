@@ -29,8 +29,8 @@ pub const BORDER_RIGHT       : usize = 1;
 pub const BORDER_BOTTOM      : usize = 2;
 pub const BORDER_LEFT        : usize = 3;
 
-const DECORATION_SIZE     : usize = 8;
-const DECORATION_TOP_SIZE : usize = 24;
+const DECORATION_SIZE     : i32 = 8;
+const DECORATION_TOP_SIZE : i32 = 24;
 
 #[derive(Debug)]
 enum PtrLocation {
@@ -45,7 +45,7 @@ struct PointerState {
     surfaces: Vec<SurfaceId>,
     location: PtrLocation,
     coordinates: (f64, f64),
-    surface_width: u32,
+    surface_width: i32,
 }
 
 impl PointerState {
@@ -84,8 +84,8 @@ pub struct DecoratedSurface<S: Surface> {
     buffers: Vec<Buffer>,
     tempfile: TempFile,
     pool: ShmPool,
-    height: u32,
-    width: u32,
+    height: i32,
+    width: i32,
     buffer_capacity: usize,
     _pointer: Option<Pointer<WSurface>>,
     pointer_state: Arc<Mutex<PointerState>>
@@ -118,10 +118,10 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
     ///
     /// These values should be the dimentions of the internal surface of the
     /// window (the decorated window will thus be a little larger).
-    pub fn resize(&mut self, width: u32, height: u32) {
-        let new_pxcount = max(DECORATION_TOP_SIZE * (DECORATION_SIZE * 2 + (width as usize)),
-            max(DECORATION_TOP_SIZE * (width as usize), DECORATION_SIZE * (height as usize))
-        );
+    pub fn resize(&mut self, width: i32, height: i32) {
+        let new_pxcount = max(DECORATION_TOP_SIZE * (DECORATION_SIZE * 2 + width),
+            max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height)
+        ) as usize;
         if new_pxcount * 4 > self.buffer_capacity {
             // reallocation needed !
             self.tempfile.set_len((new_pxcount * 4) as u64).unwrap();
@@ -198,7 +198,7 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
     /// Creates a new decorated window around given surface.
     ///
     /// If the creation failed (likely if the registry was not ready), hands back the surface.
-    pub fn new(user_surface: S, width: u32, height: u32, registry: &Registry, seat: Option<&Seat>)
+    pub fn new(user_surface: S, width: i32, height: i32, registry: &Registry, seat: Option<&Seat>)
         -> Result<DecoratedSurface<S>,S>
     {
         // fetch the global 
@@ -221,8 +221,8 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
 
         // handle Shm
         let pxcount = max(DECORATION_TOP_SIZE * DECORATION_SIZE,
-            max(DECORATION_TOP_SIZE * (width as usize), DECORATION_SIZE * (height as usize))
-        );
+            max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height)
+        ) as usize;
 
         let tempfile = match TempFile::new() {
             Ok(t) => t,

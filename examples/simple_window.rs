@@ -36,7 +36,7 @@ impl Window {
             self.pool_size = (width*height*4) as usize;
         }
         self.buf = self.pool.create_buffer(0, width, height, width*4, ShmFormat::ARGB8888).unwrap();
-        self.w.resize(width as u32, height as u32);
+        self.w.resize(width, height);
         let surface = self.w.get_shell();
         surface.attach(&self.buf, 0, 0);
         surface.commit();
