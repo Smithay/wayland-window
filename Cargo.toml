@@ -1,6 +1,6 @@
 [package]
 name = "wayland-window"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Victor Berger <victor.berger@m4x.org>"]
 repository = "https://github.com/vberger/wayland-window"
 documentation = "http://vberger.github.io/wayland-window/wayland_window/"
@@ -13,4 +13,4 @@ tempfile = "1.1"
 wayland-client = "^0.2.1"
 
 [dev-dependencies]
-wayland-client = { features = ["dlopen"] }
+wayland-client = { version = "^0.2.1", features = ["dlopen"] }
