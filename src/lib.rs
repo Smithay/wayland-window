@@ -11,58 +11,46 @@
 //!
 //! ```ignore
 //! use wayland_window::DecoratedSurface;
-//! let decorated = DecoratedSurface::new(my_surface, width, height, &registry, &seat);
+//! let decorated = DecoratedSurface::new(my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat));
 //! ```
 //!
-//! As you can see, you need to pass the `Registry` and a `Seat` as well. It is required
-//! for the library to be able to create the surfaces to draw the borders, and register
-//! the callback to detect user input in the borders, for resizeing and move. These callback
-//! will be registered on the seat you passed as argument. (So if you are on a setup with more
-//! than one pointer, only one of them will be able to resize the window).
+//! As you can see, you need to pass several references to global objects as well as a `WlSeat`.
+//! It is required for the library to be able to create the surfaces to draw the borders, react
+//! to user input in the borders, for resizeing and move. It will use the events provided on the
+//! seat you passed as argument. (So if you are on a setup with more than one pointer,
+//! only the one associated with this seat will be able to resize the window).
 //!
 //! ## Processing the events
 //!
 //! The `DecoratedSurface` object will not resize your window itself, as it cannot do it.
 //!
 //! When the user clicks on a border and starts a resize, the server will start to generate a
-//! number of `configure` events on the shell surface. You'll need to register a callback on
-//! it to handle them:
+//! number of `configure` events on the shell surface. You'll need to process the events generated
+//! by the surface to handle them, as the surface is also an event iterator :
 //!
 //! ```ignore
-//! decorated.get_shell().set_configure_callback(move |edge, width, height| {
-//!     /* ... */
-//! });
+//! for (time, x, y) in &mut decorated_surface {
+//!     // handle the event
+//! }
 //! ```
 //!
 //! The wayland server can (and will) generate a ton of `configure` events during a single
-//! `Display::dispatch()` if the user is currently resizing the window. You are only required to
+//! `WlDisplay::dispatch()` if the user is currently resizing the window. You are only required to
 //! process the last one, and if you try to handle them all your aplication will be very
 //! laggy.
 //!
-//! The proper way is to use the callback to only store them in a container, overwriting the
+//! The proper way is to prcess the iterator and only store them in a container, overwriting the
 //! the previous one each time, and manually checking if one has been received in the main loop
 //! of your program, like this:
 //!
 //! ```ignore
-//! // create a shared storage: (width, heigh, need_resize ?)
-//! let need_resize = Arc::new(Mutex::new((0, 0, false)));
-//! // clone it and put it in the callback
-//! let my_need_resize = need_resize.clone();
-//! decorated.w.get_shell().set_configure_callback(move |_edge, width, height| {
-//!     let mut guard = my_newsize.lock().unwrap();
-//!     // we overwrite it each time, to only keep the last one
-//!     *guard = (width, height, true);
-//! });
-//! // then handle all this in the main loop:
-//! loop {
-//!     display.dispatch();
-//!     let guard = need_resize.lock().unwrap();
-//!     let (width, height, resize) = *guard;
-//!     if resize {
-//!         /* handle the resizing here */
-//!     }
-//!     // reset the storage
-//!     *guard = (0, 0, false);
+//! let mut newsize = None;
+//! for (_, x, y) in &mut decorated_surface {
+//!     newsize = Some((x, y))
+//! }
+//! if let Some((x, y)) = newsize {
+//!     let (x, y) = substract_borders(x, y);
+//!     window.resize(x, y);
 //! }
 //! ```
 //!
@@ -72,9 +60,10 @@
 //! must update its dimensions. This is very simple:
 //!
 //! ```ignore
-//! /* update the buffer of decorated */
-//! decorated.resize(width, height);
-//! decorated.get_shell().commit();
+//! /* update the borders size */
+//! surface.attach(Some(&new_buffer));
+//! decorated_surface.resize(width, height);
+//! surface.commit();
 //! ```
 //!
 //! If you do this as a response of a `configure` event, note the following points:
@@ -90,8 +79,8 @@
 
 extern crate byteorder;
 extern crate tempfile;
-extern crate wayland_client as wayland;
+extern crate wayland_client;
 
 mod decorated_surface;
 
-pub use decorated_surface::{DecoratedSurface, substract_borders, SurfaceGuard};
+pub use decorated_surface::{DecoratedSurface, substract_borders};

@@ -1,28 +1,33 @@
 extern crate byteorder;
 extern crate tempfile;
-extern crate wayland_client as wayland;
+extern crate wayland_client;
 extern crate wayland_window;
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
-use std::cmp::max;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::os::unix::io::AsRawFd;
 
 use tempfile::TempFile;
 
-use wayland::core::compositor::WSurface;
-use wayland::core::default_display;
-use wayland::core::shm::{Buffer, ShmPool, ShmFormat};
+use wayland_client::{EventIterator, Proxy, Event};
+use wayland_client::wayland::{WlDisplay, WlRegistry, get_display};
+use wayland_client::wayland::{WaylandProtocolEvent, WlRegistryEvent};
+use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
+use wayland_client::wayland::subcompositor::WlSubcompositor;
+use wayland_client::wayland::shm::{WlShm, WlShmFormat, WlShmPool, WlBuffer};
+use wayland_client::wayland::seat::WlSeat;
+use wayland_client::wayland::shell::WlShell;
 
 use wayland_window::{DecoratedSurface, substract_borders};
 
 struct Window {
-    w: DecoratedSurface<WSurface>,
+    w: DecoratedSurface,
+    s: WlSurface,
     tmp: TempFile,
-    pool: ShmPool,
+    pool: WlShmPool,
     pool_size: usize,
-    buf: Buffer
+    buf: WlBuffer
 }
 
 impl Window {
@@ -35,27 +40,88 @@ impl Window {
             self.pool.resize(width*height*4);
             self.pool_size = (width*height*4) as usize;
         }
-        self.buf = self.pool.create_buffer(0, width, height, width*4, ShmFormat::ARGB8888).unwrap();
+        self.buf = self.pool.create_buffer(0, width, height, width*4, WlShmFormat::Argb8888 as u32);
         self.w.resize(width, height);
-        let surface = self.w.get_shell();
-        surface.attach(&self.buf, 0, 0);
-        surface.commit();
+        self.s.attach(Some(&self.buf), 0, 0);
+        self.s.commit();
     }
 }
 
+struct WaylandEnv {
+    display: WlDisplay,
+    registry: WlRegistry,
+    compositor: Option<WlCompositor>,
+    subcompositor: Option<WlSubcompositor>,
+    seat: Option<WlSeat>,
+    shm: Option<WlShm>,
+    shell: Option<WlShell>,
+}
+
+impl WaylandEnv {
+    fn new(mut display: WlDisplay) -> WaylandEnv {
+        let registry = display.get_registry();
+        display.sync_roundtrip().unwrap();
+
+        WaylandEnv {
+            display: display,
+            registry: registry,
+            compositor: None,
+            subcompositor: None,
+            seat: None,
+            shm: None,
+            shell: None
+        }
+    }
+
+    fn handle_global(&mut self, name: u32, interface: &str, _version: u32) {
+        match interface {
+            "wl_compositor" => self.compositor = Some(
+                unsafe { self.registry.bind::<WlCompositor>(name, 1) }
+            ),
+            "wl_subcompositor" => self.subcompositor = Some(
+                unsafe { self.registry.bind::<WlSubcompositor>(name, 1) }
+            ),
+            "wl_seat" => self.seat = Some(
+                unsafe { self.registry.bind::<WlSeat>(name, 1) }
+            ),
+            "wl_shell" => self.shell = Some(
+                unsafe { self.registry.bind::<WlShell>(name, 1) }
+            ),
+            "wl_shm" => self.shm = Some(
+                unsafe { self.registry.bind::<WlShm>(name, 1) }
+            ),
+            _ => {}
+        }
+    }
+
+    fn init(&mut self, iter: &mut EventIterator) {
+        for evt in iter {
+            match evt {
+                Event::Wayland(WaylandProtocolEvent::WlRegistry(
+                    _, WlRegistryEvent::Global(name, interface, version)
+                )) => {
+                    self.handle_global(name, &interface, version)
+                }
+                _ => {}
+            }
+        }
+        if self.compositor.is_none() || self.seat.is_none() ||
+            self.shell.is_none() || self.shm.is_none() {
+            panic!("Missing some globals ???");
+        }
+    }
+}
+
+
 fn main() {
 
-    let display = default_display().expect("Unable to connect to Wayland server.");
+    let mut display = get_display().expect("Unable to connect to Wayland server.");
+    let mut event_iterator = EventIterator::new();
+    display.set_evt_iterator(&event_iterator);
 
-    let registry = display.get_registry();
-    display.sync_roundtrip();
-
-    let compositor = registry.get_compositor().expect("Unable to get the compositor.");
-    let surface = compositor.create_surface();
-    let shm = registry.get_shm().expect("Unable to get the shm.");
-    let seats = registry.get_seats();
-
-    display.sync_roundtrip();
+    let mut env = WaylandEnv::new(display);
+    // the only events to handle are the globals
+    env.init(&mut event_iterator);
 
     // Not a good way to create a shared buffer, but this will do for this example.
     let mut tmp = TempFile::new().ok().expect("Unable to create a tempfile.");
@@ -65,12 +131,19 @@ fn main() {
     }
     let _ = tmp.flush();
     // create a shm_pool from this tempfile
-    let pool = shm.pool_from_fd(&tmp, 64);
+    let pool = env.shm.as_ref().unwrap().create_pool(tmp.as_raw_fd(), 64);
     // match a buffer on the part we wrote on
-    let buffer = pool.create_buffer(0, 4, 4, 16, ShmFormat::ARGB8888)
-                     .expect("Could not create buffer.");
+    let buffer = pool.create_buffer(0, 4, 4, 16, WlShmFormat::Argb8888 as u32);
 
-    let window = match DecoratedSurface::new(surface, 16, 16, &registry, seats.first()) {
+    let surface = env.compositor.as_ref().unwrap().create_surface();
+
+    let window = match DecoratedSurface::new(&surface, 16, 16,
+        env.compositor.as_ref().unwrap(),
+        env.subcompositor.as_ref().unwrap(),
+        env.shm.as_ref().unwrap(),
+        env.shell.as_ref().unwrap(),
+        env.seat.take()
+    ) {
         Ok(w) => w,
         Err(_) => panic!("ERROR")
     };
@@ -78,6 +151,7 @@ fn main() {
     // store all this in a struct to make sharing and update easier
     let mut window = Window {
         w: window,
+        s: surface,
         tmp: tmp,
         pool: pool,
         pool_size: 64,
@@ -86,27 +160,22 @@ fn main() {
 
     window.resize(256, 128);
 
-    display.sync_roundtrip();
-
-    let newsize = Arc::new(Mutex::new((0, 0, false)));
-    let my_newsize = newsize.clone();
-    window.w.get_shell().set_configure_callback(move |_edge, width, height| {
-        let (w, h) = substract_borders(width, height);
-        let mut guard = my_newsize.lock().unwrap();
-        // If several events occur in the same dispatch(),
-        // only keep the last one
-        // also, refuse to get too small
-        *guard = (max(w, 16), max(h, 16), true);
-    });
+    env.display.sync_roundtrip().unwrap();
 
     loop {
-        display.dispatch();
-        let mut guard = newsize.lock().unwrap();
-        let (w, h, b) = *guard;
-        if b {
-            window.resize(w, h);
-            *guard = (0, 0, false);
+        env.display.flush().unwrap();
+        env.display.dispatch().unwrap();
+        for e in &mut event_iterator {
+        match e {
+            _ => {}
+        }}
+        let mut newsize = None;
+        for (_, x, y) in &mut window.w {
+            newsize = Some((x, y))
         }
-
+        if let Some((x, y)) = newsize {
+            let (x, y) = substract_borders(x, y);
+            window.resize(x, y);
+        }
     }
 }
