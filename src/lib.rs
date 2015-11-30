@@ -90,8 +90,8 @@
 
 extern crate byteorder;
 extern crate tempfile;
-extern crate wayland_client as wayland;
+extern crate wayland_client;
 
 mod decorated_surface;
 
-pub use decorated_surface::{DecoratedSurface, substract_borders, SurfaceGuard};
+pub use decorated_surface::{DecoratedSurface, substract_borders};

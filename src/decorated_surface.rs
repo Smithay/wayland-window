@@ -1,18 +1,17 @@
 use std::cmp::max;
 use std::io::{Seek, SeekFrom, Write};
-use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::os::unix::io::AsRawFd;
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
 use tempfile::TempFile;
 
-use wayland::core::{Surface, Registry};
-use wayland::core::compositor::{WSurface, SurfaceId};
-use wayland::core::seat::{Seat, Pointer, ButtonState};
-use wayland::core::shell::{ShellSurface, ShellSurfaceResize};
-use wayland::core::shm::{Buffer, ShmPool, ShmFormat};
-use wayland::core::subcompositor::SubSurface;
+use wayland_client::{EventIterator, ProxyId, Proxy, Event};
+use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
+use wayland_client::wayland::seat::{WlSeat, WlPointer, WlPointerButtonState};
+use wayland_client::wayland::shell::{WlShell, WlShellSurface, WlShellSurfaceResize};
+use wayland_client::wayland::shm::{WlBuffer, WlShm, WlShmPool,WlShmFormat};
+use wayland_client::wayland::subcompositor::{WlSubcompositor, WlSubsurface};
 
 // The surfaces handling the borders, 8 total, are organised this way:
 //
@@ -42,14 +41,14 @@ enum PtrLocation {
 }
 
 struct PointerState {
-    surfaces: Vec<SurfaceId>,
+    surfaces: Vec<ProxyId>,
     location: PtrLocation,
     coordinates: (f64, f64),
     surface_width: i32,
 }
 
 impl PointerState {
-    fn pointer_entered(&mut self, sid: SurfaceId) {
+    fn pointer_entered(&mut self, sid: ProxyId) {
         if self.surfaces[BORDER_TOP] == sid {
             self.location = PtrLocation::Top;
         } else if self.surfaces[BORDER_RIGHT] == sid {
@@ -78,42 +77,22 @@ impl PointerState {
 /// It also handles the drawing of minimalistic borders allowing the
 /// resizing and moving of the window. See the root documentation of
 /// this crate for explanations about how to use it.
-pub struct DecoratedSurface<S: Surface> {
-    shell_surface: Arc<Mutex<Option<ShellSurface<S>>>>,
-    border_surfaces: Vec<SubSurface<WSurface>>,
-    buffers: Vec<Buffer>,
+pub struct DecoratedSurface {
+    shell_surface: WlShellSurface,
+    border_surfaces: Vec<(WlSurface, WlSubsurface)>,
+    buffers: Vec<WlBuffer>,
     tempfile: TempFile,
-    pool: ShmPool,
+    pool: WlShmPool,
     height: i32,
     width: i32,
     buffer_capacity: usize,
-    _pointer: Option<Pointer<WSurface>>,
-    pointer_state: Arc<Mutex<PointerState>>
+    _pointer: Option<WlPointer>,
+    pointer_state: PointerState,
+    eventiter: EventIterator,
+    seat: Option<WlSeat>
 }
 
-/// A wrapper around a reference to the surface you
-/// stored in a `DecoratedSurface`.
-///
-/// It allows you to access the `ShellSurface` object via deref
-/// (and thus the surface itself as well).
-pub struct SurfaceGuard<'a, S: Surface + 'a> {
-    guard: MutexGuard<'a, Option<ShellSurface<S>>>
-}
-
-impl<'a, S: Surface + 'a> Deref for SurfaceGuard<'a, S> {
-    type Target = ShellSurface<S>;
-    fn deref(&self) -> &ShellSurface<S> {
-        self.guard.as_ref().unwrap()
-    }
-}
-
-impl<'a, S: Surface + 'a> DerefMut for SurfaceGuard<'a, S> {
-    fn deref_mut(&mut self) -> &mut ShellSurface<S> {
-        self.guard.as_mut().unwrap()
-    }
-}
-
-impl<S: Surface + Send + 'static> DecoratedSurface<S> {
+impl DecoratedSurface {
     /// Resizes the borders to given width and height.
     ///
     /// These values should be the dimentions of the internal surface of the
@@ -130,7 +109,7 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
         }
         self.width = width;
         self.height = height;
-        self.pointer_state.lock().unwrap().surface_width = width;
+        self.pointer_state.surface_width = width;
         // rewrite the data
         self.tempfile.seek(SeekFrom::Start(0)).unwrap();
         for _ in 0..(new_pxcount*4) {
@@ -147,10 +126,10 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
                 DECORATION_TOP_SIZE as i32,
                 (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
-                ShmFormat::ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_TOP].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_TOP].set_position(
+                WlShmFormat::Argb8888 as u32
+            );
+            self.border_surfaces[BORDER_TOP].0.attach(Some(&buffer), 0, 0);
+            self.border_surfaces[BORDER_TOP].1.set_position(
                 -(DECORATION_SIZE as i32),
                 -(DECORATION_TOP_SIZE as i32)
             );
@@ -161,10 +140,10 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
             let buffer = self.pool.create_buffer(
                 0, DECORATION_SIZE as i32,
                 self.height as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_RIGHT].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_RIGHT].set_position(self.width as i32, 0);
+                WlShmFormat::Argb8888 as u32
+            );
+            self.border_surfaces[BORDER_RIGHT].0.attach(Some(&buffer), 0, 0);
+            self.border_surfaces[BORDER_RIGHT].1.set_position(self.width as i32, 0);
             self.buffers.push(buffer);
         }
         // bottom
@@ -174,10 +153,10 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
                 DECORATION_SIZE as i32,
                 (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
-                ShmFormat::ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_BOTTOM].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_BOTTOM].set_position(-(DECORATION_SIZE as i32), self.height as i32);
+                WlShmFormat::Argb8888 as u32
+            );
+            self.border_surfaces[BORDER_BOTTOM].0.attach(Some(&buffer), 0, 0);
+            self.border_surfaces[BORDER_BOTTOM].1.set_position(-(DECORATION_SIZE as i32), self.height as i32);
             self.buffers.push(buffer);
         }
         // left
@@ -185,40 +164,23 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
             let buffer = self.pool.create_buffer(
                 0, DECORATION_SIZE as i32,
                 self.height as i32, (DECORATION_SIZE*4) as i32,
-                ShmFormat::ARGB8888
-            ).unwrap();
-            self.border_surfaces[BORDER_LEFT].attach(&buffer, 0, 0);
-            self.border_surfaces[BORDER_LEFT].set_position(-(DECORATION_SIZE as i32), 0);
+                WlShmFormat::Argb8888 as u32
+            );
+            self.border_surfaces[BORDER_LEFT].0.attach(Some(&buffer), 0, 0);
+            self.border_surfaces[BORDER_LEFT].1.set_position(-(DECORATION_SIZE as i32), 0);
             self.buffers.push(buffer);
         }
 
-        for s in &self.border_surfaces { s.commit(); }
+        for s in &self.border_surfaces { s.0.commit(); }
     }
 
     /// Creates a new decorated window around given surface.
-    ///
-    /// If the creation failed (likely if the registry was not ready), hands back the surface.
-    pub fn new(user_surface: S, width: i32, height: i32, registry: &Registry, seat: Option<&Seat>)
-        -> Result<DecoratedSurface<S>,S>
+    pub fn new(surface: &WlSurface, width: i32, height: i32,
+               compositor: &WlCompositor, subcompositor: &WlSubcompositor,
+               shm: &WlShm, shell: &WlShell, seat: Option<WlSeat>)
+        -> Result<DecoratedSurface, ()>
     {
-        // fetch the global 
-        let comp = match registry.get_compositor() {
-            Some(c) => c,
-            None => return Err(user_surface)
-        };
-        let subcomp = match registry.get_subcompositor() {
-            Some(c) => c,
-            None => return Err(user_surface)
-        };
-        let shm = match registry.get_shm() {
-            Some(s) => s,
-            None => return Err(user_surface)
-        };
-        let shell = match registry.get_shell() {
-            Some(s) => s,
-            None => return Err(user_surface)
-        };
-
+        let evts = EventIterator::new();
         // handle Shm
         let pxcount = max(DECORATION_TOP_SIZE * DECORATION_SIZE,
             max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height)
@@ -226,23 +188,29 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
 
         let tempfile = match TempFile::new() {
             Ok(t) => t,
-            Err(_) => return Err(user_surface)
+            Err(_) => return Err(())
         };
 
         match tempfile.set_len((pxcount *4) as u64) {
             Ok(()) => {},
-            Err(_) => return Err(user_surface)
+            Err(_) => return Err(())
         };
 
-        let pool = shm.pool_from_fd(&tempfile, (pxcount * 4) as i32);
+        let mut pool = shm.create_pool(tempfile.as_raw_fd(), (pxcount * 4) as i32);
+        pool.set_evt_iterator(&evts);
 
         // create surfaces
-        let border_surfaces: Vec<_> = (0..4).map(|_|
-            subcomp.get_subsurface(comp.create_surface(), user_surface.get_wsurface())
-        ).collect();
-        for s in &border_surfaces { s.set_sync(false) }
+        let border_surfaces: Vec<_> = (0..4).map(|_| {
+            let mut s = compositor.create_surface();
+            s.set_evt_iterator(&evts);
+            let mut ss = subcompositor.get_subsurface(&s, surface);
+            ss.set_evt_iterator(&evts);
+            (s, ss)
+        }).collect();
+        for s in &border_surfaces { s.1.set_desync() }
 
-        let shell_surface = shell.get_shell_surface(user_surface);
+        let mut shell_surface = shell.get_shell_surface(surface);
+        shell_surface.set_evt_iterator(&evts);
         shell_surface.set_toplevel();
 
         // Pointer
@@ -252,94 +220,15 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
             coordinates: (0., 0.),
             surface_width: width
         };
-        let mut pointer = seat.and_then(|seat| seat.get_pointer())
+        let pointer = seat.as_ref().map(|seat| seat.get_pointer())
                           .map(|mut pointer| {
             // let (mut pointer, _) = pointer.set_cursor(Some(comp.create_surface()), (0,0));
             for s in &border_surfaces {
-                pointer.add_handled_surface(s.get_id());
-                pointer_state.surfaces.push(s.get_id());
+                pointer_state.surfaces.push(s.0.id());
             }
+            pointer.set_evt_iterator(&evts);
             pointer
         });
-        let pointer_state = Arc::new(Mutex::new(pointer_state));
-
-        let shell_surface = Arc::new(Mutex::new(Some(shell_surface)));
-
-        if let Some(ref mut pointer) = pointer {
-            let my_pointer = pointer_state.clone();
-            pointer.set_enter_action(move |_pid, _serial, sid, x, y| {
-                let mut guard = my_pointer.lock().unwrap();
-                guard.pointer_entered(sid);
-                guard.coordinates = (x, y);
-            });
-
-            let my_pointer = pointer_state.clone();
-            pointer.set_leave_action(move |_pid, _serial, _sid| {
-                let mut guard = my_pointer.lock().unwrap();
-                guard.pointer_left();
-                guard.coordinates = (0., 0.);
-            });
-
-            let my_pointer = pointer_state.clone();
-            pointer.set_motion_action(move |_pid, _t, x, y| {
-                let mut guard = my_pointer.lock().unwrap();
-                guard.coordinates = (x, y);
-            });
-
-            let my_pointer = pointer_state.clone();
-            let my_seat = pointer.get_seat().clone();
-            let my_shell = shell_surface.clone();
-            pointer.set_button_action(move |_pid, serial, _t, button, state| {
-                if button != 0x110 { return; }
-                if state != ButtonState::Pressed { return; }
-                let pguard = my_pointer.lock().unwrap();
-                let sguard = my_shell.lock().unwrap();
-                let shell = match sguard.as_ref() {
-                    Some(s) => s,
-                    None => return
-                };
-                let (x, y) = pguard.coordinates;
-                let w = pguard.surface_width;
-                let (direction, resize) = match pguard.location {
-                    PtrLocation::Top => {
-                        if y < DECORATION_SIZE as f64 {
-                            if x < DECORATION_SIZE as f64 {
-                                (ShellSurfaceResize::TopLeft, true)
-                            } else if x > w as f64 + DECORATION_SIZE as f64 {
-                                (ShellSurfaceResize::TopRight, true)
-                            } else {
-                                (ShellSurfaceResize::Top, true)
-                            }
-                        } else {
-                            if x < DECORATION_SIZE as f64 {
-                                (ShellSurfaceResize::Left, true)
-                            } else if x > w as f64 + DECORATION_SIZE as f64 {
-                                (ShellSurfaceResize::Right, true)
-                            } else {
-                                (ShellSurfaceResize::None, false)
-                            }
-                        }
-                    },
-                    PtrLocation::Bottom => {
-                        if x < DECORATION_SIZE as f64 {
-                            (ShellSurfaceResize::BottomLeft, true)
-                        } else if x > w as f64 + DECORATION_SIZE as f64 {
-                            (ShellSurfaceResize::BottomRight, true)
-                        } else {
-                            (ShellSurfaceResize::Bottom, true)
-                        }
-                    },
-                    PtrLocation::Left => (ShellSurfaceResize::Left, true),
-                    PtrLocation::Right => (ShellSurfaceResize::Right, true),
-                    PtrLocation::None => (ShellSurfaceResize::None, true)
-                };
-                if resize {
-                    shell.start_resize(&my_seat, serial, direction);
-                } else {
-                    shell.start_move(&my_seat, serial);
-                }
-            });
-        }
 
         let mut me = DecoratedSurface {
             shell_surface: shell_surface,
@@ -351,29 +240,106 @@ impl<S: Surface + Send + 'static> DecoratedSurface<S> {
             width: width,
             buffer_capacity: pxcount * 4,
             _pointer: pointer,
-            pointer_state: pointer_state
+            pointer_state: pointer_state,
+            eventiter: evts,
+            seat: seat,
         };
 
         me.resize(width, height);
 
         Ok(me)
     }
+}
 
-    /// Creates a guard giving you access to the shell surface wrapped
-    /// in this object.
-    ///
-    /// Calling for a processing of the events from the wayland server
-    /// (via `Display::dispatch()` for example) while this guard is in
-    /// scope may result in a deadlock.
-    pub fn get_shell(&self) -> SurfaceGuard<S> {
-        SurfaceGuard {
-            guard: self.shell_surface.lock().unwrap()
-        }
-    }
+impl Iterator for DecoratedSurface {
+    type Item = (WlShellSurfaceResize::WlShellSurfaceResize, i32, i32);
 
-    /// Destroys the DecoratedSurface and returns the wrapped surface
-    pub fn destroy(self) -> S {
-        self.shell_surface.lock().unwrap().take().unwrap().destroy()
+    fn next(&mut self) -> Option<(WlShellSurfaceResize::WlShellSurfaceResize, i32, i32)> {
+        use wayland_client::wayland::WaylandProtocolEvent;
+        use wayland_client::wayland::seat::WlPointerEvent;
+        use wayland_client::wayland::shell::WlShellSurfaceEvent;
+
+        for e in &mut self.eventiter {
+        match e {
+            Event::Wayland(WaylandProtocolEvent::WlPointer(_pid,
+                WlPointerEvent::Enter(_serial, sid, x, y)
+            )) => {
+                self.pointer_state.pointer_entered(sid);
+                self.pointer_state.coordinates = (x, y);
+            },
+            Event::Wayland(WaylandProtocolEvent::WlPointer(_pid,
+                WlPointerEvent::Leave(_serial, _sid)
+            )) => {
+                self.pointer_state.pointer_left();
+            },
+            Event::Wayland(WaylandProtocolEvent::WlPointer(_pid,
+                WlPointerEvent::Motion(_time, x, y)
+            )) => {
+                self.pointer_state.coordinates = (x, y);
+            }
+            Event::Wayland(WaylandProtocolEvent::WlPointer(_pid,
+                WlPointerEvent::Button(serial, _time, button, state)
+            )) => {
+                if button != 0x110 { continue; }
+                if let WlPointerButtonState::Released = state { continue; }
+                let (x, y) = self.pointer_state.coordinates;
+                let w = self.pointer_state.surface_width;
+                let (direction, resize) = match self.pointer_state.location {
+                    PtrLocation::Top => {
+                        if y < DECORATION_SIZE as f64 {
+                            if x < DECORATION_SIZE as f64 {
+                                (WlShellSurfaceResize::TopLeft, true)
+                            } else if x > w as f64 + DECORATION_SIZE as f64 {
+                                (WlShellSurfaceResize::TopRight, true)
+                            } else {
+                                (WlShellSurfaceResize::Top, true)
+                            }
+                        } else {
+                            if x < DECORATION_SIZE as f64 {
+                                (WlShellSurfaceResize::Left, true)
+                            } else if x > w as f64 + DECORATION_SIZE as f64 {
+                                (WlShellSurfaceResize::Right, true)
+                            } else {
+                                (WlShellSurfaceResize::None, false)
+                            }
+                        }
+                    },
+                    PtrLocation::Bottom => {
+                        if x < DECORATION_SIZE as f64 {
+                            (WlShellSurfaceResize::BottomLeft, true)
+                        } else if x > w as f64 + DECORATION_SIZE as f64 {
+                            (WlShellSurfaceResize::BottomRight, true)
+                        } else {
+                            (WlShellSurfaceResize::Bottom, true)
+                        }
+                    },
+                    PtrLocation::Left => (WlShellSurfaceResize::Left, true),
+                    PtrLocation::Right => (WlShellSurfaceResize::Right, true),
+                    PtrLocation::None => (WlShellSurfaceResize::None, true)
+                };
+                if let Some(ref seat) = self.seat {
+                    if resize {
+                        self.shell_surface.resize(&seat, serial, direction);
+                    } else {
+                        self.shell_surface.move_(&seat, serial);
+                    }
+                }
+            },
+            Event::Wayland(WaylandProtocolEvent::WlShellSurface(_pid,
+                WlShellSurfaceEvent::Ping(serial)
+            )) => {
+                self.shell_surface.pong(serial);
+            },
+            Event::Wayland(WaylandProtocolEvent::WlShellSurface(_,
+                WlShellSurfaceEvent::Configure(r, x, y)
+            )) => {
+                // forward configure
+                return Some((r, x, y))
+            },
+            _ => {}
+        }}
+        // nothing more ?
+        None
     }
 }
 
