@@ -1,6 +1,6 @@
 [package]
 name = "wayland-window"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Victor Berger <victor.berger@m4x.org>"]
 repository = "https://github.com/vberger/wayland-window"
 documentation = "http://vberger.github.io/wayland-window/wayland_window/"
@@ -10,7 +10,7 @@ description = "A minimalistic window-decorations library built on top of wayland
 [dependencies]
 byteorder = "0.4"
 tempfile = "1.1"
-wayland-client = "0.4"
+wayland-client = "0.5"
 
 [dev-dependencies]
-wayland-client = { version = "0.4", features = ["dlopen"] }
+wayland-client = { version = "0.5", features = ["dlopen"] }
