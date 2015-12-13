@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.2.2 -- 2015-12-13
+
+### Added
+
+- `set_title` for decorated surfaces
+- `set_class` for decorated surfaces
+- `add_borders` free helper function
+
 ## 0.2.1 -- 2015-12-09
 
 Update to wayland-client 0.5.

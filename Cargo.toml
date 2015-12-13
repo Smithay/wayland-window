@@ -1,6 +1,6 @@
 [package]
 name = "wayland-window"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Victor Berger <victor.berger@m4x.org>"]
 repository = "https://github.com/vberger/wayland-window"
 documentation = "http://vberger.github.io/wayland-window/wayland_window/"

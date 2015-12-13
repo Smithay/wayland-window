@@ -83,4 +83,4 @@ extern crate wayland_client;
 
 mod decorated_surface;
 
-pub use decorated_surface::{DecoratedSurface, substract_borders};
+pub use decorated_surface::{DecoratedSurface, substract_borders, add_borders};

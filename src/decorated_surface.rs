@@ -249,6 +249,23 @@ impl DecoratedSurface {
 
         Ok(me)
     }
+
+    /// Set a short title for the surface.
+    ///
+    /// This string may be used to identify the surface in a task bar, window list, or other user
+    /// interface elements provided by the compositor.
+    pub fn set_title(&self, title: String) {
+        self.shell_surface.set_title(title)
+    }
+
+    /// Set a class for the surface.
+    ///
+    /// The surface class identifies the general class of applications to which the surface
+    /// belongs. A common convention is to use the file name (or the full path if it is a
+    /// non-standard location) of the application's .desktop file as the class.
+    pub fn set_class(&self, class: String) {
+        self.shell_surface.set_class(class)
+    }
 }
 
 impl Iterator for DecoratedSurface {
@@ -348,5 +365,13 @@ pub fn substract_borders(width: i32, height: i32) -> (i32, i32) {
     (
         width - 2*(DECORATION_SIZE as i32),
         height - DECORATION_SIZE as i32 - DECORATION_TOP_SIZE as i32
+    )
+}
+
+/// Adds the border dimensions to the given dimensions.
+pub fn add_borders(width: i32, height: i32) -> (i32, i32) {
+    (
+        width + 2*(DECORATION_SIZE as i32),
+        height + DECORATION_SIZE as i32 + DECORATION_TOP_SIZE as i32
     )
 }
