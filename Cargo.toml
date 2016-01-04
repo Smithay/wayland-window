@@ -10,7 +10,7 @@ description = "A minimalistic window-decorations library built on top of wayland
 [dependencies]
 byteorder = "0.4"
 tempfile = "1.1"
-wayland-client = "0.5"
+wayland-client = { version = "0.5.6", features = ["cursor"] }
 
 [dev-dependencies]
-wayland-client = { version = "0.5", features = ["dlopen"] }
+wayland-client = { version = "0.5.6", features = ["cursor", "dlopen"] }

@@ -13,6 +13,8 @@ use wayland_client::wayland::shell::{WlShell, WlShellSurface, WlShellSurfaceResi
 use wayland_client::wayland::shm::{WlBuffer, WlShm, WlShmPool,WlShmFormat};
 use wayland_client::wayland::subcompositor::{WlSubcompositor, WlSubsurface};
 
+use super::themed_pointer::ThemedPointer;
+
 // The surfaces handling the borders, 8 total, are organised this way:
 //
 //        0
@@ -31,7 +33,7 @@ pub const BORDER_LEFT        : usize = 3;
 const DECORATION_SIZE     : i32 = 8;
 const DECORATION_TOP_SIZE : i32 = 24;
 
-#[derive(Debug)]
+#[derive(Debug,Copy,Clone,PartialEq,Eq)]
 enum PtrLocation {
     None,
     Top,
@@ -40,15 +42,24 @@ enum PtrLocation {
     Left
 }
 
+enum Pointer {
+    Plain(WlPointer),
+    Themed(ThemedPointer),
+    None
+}
+
 struct PointerState {
     surfaces: Vec<ProxyId>,
     location: PtrLocation,
     coordinates: (f64, f64),
+    cornered: bool,
+    topped: bool,
     surface_width: i32,
+    pointer: Pointer
 }
 
 impl PointerState {
-    fn pointer_entered(&mut self, sid: ProxyId) {
+    fn pointer_entered(&mut self, sid: ProxyId, serial: u32) {
         if self.surfaces[BORDER_TOP] == sid {
             self.location = PtrLocation::Top;
         } else if self.surfaces[BORDER_RIGHT] == sid {
@@ -61,10 +72,53 @@ impl PointerState {
             // should probably never happen ?
             self.location = PtrLocation::None;
         }
+        self.update(Some(serial), true);
     }
 
     fn pointer_left(&mut self) {
         self.location = PtrLocation::None;
+        self.change_pointer("left_ptr", None)
+    }
+
+    fn update(&mut self, serial: Option<u32>, force: bool) {
+        let old_cornered = self.cornered;
+        self.cornered = (self.location == PtrLocation::Top || self.location == PtrLocation::Bottom) &&
+                        (self.coordinates.0 <= DECORATION_SIZE as f64 ||
+                         self.coordinates.0 >= (self.surface_width + DECORATION_SIZE) as f64);
+        let old_topped = self.topped;
+        self.topped = self.location == PtrLocation::Top && self.coordinates.1 <= DECORATION_SIZE as f64;
+        if force || (self.cornered ^ old_cornered) || (old_topped ^ self.topped) {
+            let name = if self.cornered {
+                match self.location {
+                    PtrLocation::Top => if self.coordinates.0 <= DECORATION_SIZE as f64 {
+                        "top_left_corner"
+                    } else {
+                        "top_right_corner"
+                    },
+                    PtrLocation::Bottom => if self.coordinates.0 <= DECORATION_SIZE as f64 {
+                        "bottom_left_corner"
+                    } else {
+                        "bottom_right_corner"
+                    },
+                    _ => unreachable!()
+                }
+            } else {
+                match self.location {
+                    PtrLocation::Top => if self.topped { "top_side" } else { "left_ptr" },
+                    PtrLocation::Bottom => "bottom_side",
+                    PtrLocation::Right => "right_side",
+                    PtrLocation::Left => "left_side",
+                    _ => "left_ptr"
+                }
+            };
+            self.change_pointer(name, serial)
+        }
+    }
+
+    fn change_pointer(&self, name: &str, serial: Option<u32>) {
+        if let Pointer::Themed(ref themed) = self.pointer {
+            themed.set_cursor(name, serial);
+        }
     }
 }
 
@@ -86,7 +140,6 @@ pub struct DecoratedSurface {
     height: i32,
     width: i32,
     buffer_capacity: usize,
-    _pointer: Option<WlPointer>,
     pointer_state: PointerState,
     eventiter: EventIterator,
     seat: Option<WlSeat>
@@ -214,21 +267,33 @@ impl DecoratedSurface {
         shell_surface.set_toplevel();
 
         // Pointer
-        let mut pointer_state = PointerState {
-            surfaces: Vec::with_capacity(4),
-            location: PtrLocation::None,
-            coordinates: (0., 0.),
-            surface_width: width
-        };
-        let pointer = seat.as_ref().map(|seat| seat.get_pointer())
-                          .map(|mut pointer| {
-            // let (mut pointer, _) = pointer.set_cursor(Some(comp.create_surface()), (0,0));
-            for s in &border_surfaces {
-                pointer_state.surfaces.push(s.0.id());
+        let pointer_state = {
+            let mut surfaces = Vec::with_capacity(4);
+            let pointer = seat.as_ref().map(|seat| seat.get_pointer())
+                              .map(|mut pointer| {
+                // let (mut pointer, _) = pointer.set_cursor(Some(comp.create_surface()), (0,0));
+                for s in &border_surfaces {
+                    surfaces.push(s.0.id());
+                }
+                pointer.set_evt_iterator(&evts);
+                pointer
+            });
+
+            let pointer = match pointer.map(|pointer| ThemedPointer::load(pointer, None, &compositor, &shm)) {
+                Some(Ok(themed)) => Pointer::Themed(themed),
+                Some(Err(plain)) => Pointer::Plain(plain),
+                None => Pointer::None
+            };
+            PointerState {
+                surfaces: surfaces,
+                location: PtrLocation::None,
+                coordinates: (0., 0.),
+                surface_width: width,
+                cornered: false,
+                topped: false,
+                pointer: pointer
             }
-            pointer.set_evt_iterator(&evts);
-            pointer
-        });
+        };
 
         let mut me = DecoratedSurface {
             shell_surface: shell_surface,
@@ -239,7 +304,6 @@ impl DecoratedSurface {
             height: height,
             width: width,
             buffer_capacity: pxcount * 4,
-            _pointer: pointer,
             pointer_state: pointer_state,
             eventiter: evts,
             seat: seat,
@@ -279,10 +343,10 @@ impl Iterator for DecoratedSurface {
         for e in &mut self.eventiter {
         match e {
             Event::Wayland(WaylandProtocolEvent::WlPointer(_pid,
-                WlPointerEvent::Enter(_serial, sid, x, y)
+                WlPointerEvent::Enter(serial, sid, x, y)
             )) => {
-                self.pointer_state.pointer_entered(sid);
                 self.pointer_state.coordinates = (x, y);
+                self.pointer_state.pointer_entered(sid, serial);
             },
             Event::Wayland(WaylandProtocolEvent::WlPointer(_pid,
                 WlPointerEvent::Leave(_serial, _sid)
@@ -293,6 +357,7 @@ impl Iterator for DecoratedSurface {
                 WlPointerEvent::Motion(_time, x, y)
             )) => {
                 self.pointer_state.coordinates = (x, y);
+                self.pointer_state.update(None, false);
             }
             Event::Wayland(WaylandProtocolEvent::WlPointer(_pid,
                 WlPointerEvent::Button(serial, _time, button, state)
