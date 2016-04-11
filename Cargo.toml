@@ -8,7 +8,7 @@ license = "MIT"
 description = "A minimalistic window-decorations library built on top of wayland-client."
 
 [dependencies]
-byteorder = "0.4"
+byteorder = "0.5"
 tempfile = "1.1"
 wayland-client = { version = "0.5.6", features = ["cursor"] }
 
