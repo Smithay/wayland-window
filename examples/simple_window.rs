@@ -5,10 +5,11 @@ extern crate wayland_window;
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
+use std::fs::File;
 use std::io::Write;
 use std::os::unix::io::AsRawFd;
 
-use tempfile::TempFile;
+use tempfile::tempfile;
 
 use wayland_client::{EventIterator, Proxy, Event};
 use wayland_client::wayland::{WlDisplay, WlRegistry, get_display};
@@ -24,7 +25,7 @@ use wayland_window::{DecoratedSurface, substract_borders};
 struct Window {
     w: DecoratedSurface,
     s: WlSurface,
-    tmp: TempFile,
+    tmp: File,
     pool: WlShmPool,
     pool_size: usize,
     buf: WlBuffer
@@ -124,7 +125,7 @@ fn main() {
     env.init(&mut event_iterator);
 
     // Not a good way to create a shared buffer, but this will do for this example.
-    let mut tmp = TempFile::new().ok().expect("Unable to create a tempfile.");
+    let mut tmp = tempfile().ok().expect("Unable to create a tempfile.");
     // write the contents to it, lets put everything in dark red
     for _ in 0..16 {
         let _ = tmp.write_u32::<NativeEndian>(0xFF880000);

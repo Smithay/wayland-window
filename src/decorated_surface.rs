@@ -1,10 +1,11 @@
 use std::cmp::max;
+use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
-use tempfile::TempFile;
+use tempfile::tempfile;
 
 use wayland_client::{EventIterator, ProxyId, Proxy, Event};
 use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
@@ -135,7 +136,7 @@ pub struct DecoratedSurface {
     shell_surface: WlShellSurface,
     border_surfaces: Vec<(WlSurface, WlSubsurface)>,
     buffers: Vec<WlBuffer>,
-    tempfile: TempFile,
+    tempfile: File,
     pool: WlShmPool,
     height: i32,
     width: i32,
@@ -239,7 +240,7 @@ impl DecoratedSurface {
             max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height)
         ) as usize;
 
-        let tempfile = match TempFile::new() {
+        let tempfile = match tempfile() {
             Ok(t) => t,
             Err(_) => return Err(())
         };

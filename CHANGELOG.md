@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.2.3 -- 2016-04-11
+
+Update dependencies.
+
 ## 0.2.2 -- 2015-12-13
 
 ### Added
