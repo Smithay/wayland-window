@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.3.0 -- 2016-05-29
+
+Update to wayland-client-0.6
+
 ## 0.2.3 -- 2016-04-11
 
 Update dependencies.

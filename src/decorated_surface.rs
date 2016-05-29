@@ -8,6 +8,7 @@ use byteorder::{WriteBytesExt, NativeEndian};
 use tempfile::tempfile;
 
 use wayland_client::{EventIterator, ProxyId, Proxy, Event};
+use wayland_client::wayland::WlDisplay;
 use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
 use wayland_client::wayland::seat::{WlSeat, WlPointer, WlPointerButtonState};
 use wayland_client::wayland::shell::{WlShell, WlShellSurface, WlShellSurfaceResize};
@@ -180,7 +181,7 @@ impl DecoratedSurface {
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
                 DECORATION_TOP_SIZE as i32,
                 (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
-                WlShmFormat::Argb8888 as u32
+                WlShmFormat::Argb8888
             );
             self.border_surfaces[BORDER_TOP].0.attach(Some(&buffer), 0, 0);
             self.border_surfaces[BORDER_TOP].1.set_position(
@@ -194,7 +195,7 @@ impl DecoratedSurface {
             let buffer = self.pool.create_buffer(
                 0, DECORATION_SIZE as i32,
                 self.height as i32, (DECORATION_SIZE*4) as i32,
-                WlShmFormat::Argb8888 as u32
+                WlShmFormat::Argb8888
             );
             self.border_surfaces[BORDER_RIGHT].0.attach(Some(&buffer), 0, 0);
             self.border_surfaces[BORDER_RIGHT].1.set_position(self.width as i32, 0);
@@ -207,7 +208,7 @@ impl DecoratedSurface {
                 self.width as i32 + (DECORATION_SIZE as i32) * 2,
                 DECORATION_SIZE as i32,
                 (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
-                WlShmFormat::Argb8888 as u32
+                WlShmFormat::Argb8888
             );
             self.border_surfaces[BORDER_BOTTOM].0.attach(Some(&buffer), 0, 0);
             self.border_surfaces[BORDER_BOTTOM].1.set_position(-(DECORATION_SIZE as i32), self.height as i32);
@@ -218,7 +219,7 @@ impl DecoratedSurface {
             let buffer = self.pool.create_buffer(
                 0, DECORATION_SIZE as i32,
                 self.height as i32, (DECORATION_SIZE*4) as i32,
-                WlShmFormat::Argb8888 as u32
+                WlShmFormat::Argb8888
             );
             self.border_surfaces[BORDER_LEFT].0.attach(Some(&buffer), 0, 0);
             self.border_surfaces[BORDER_LEFT].1.set_position(-(DECORATION_SIZE as i32), 0);
@@ -229,12 +230,12 @@ impl DecoratedSurface {
     }
 
     /// Creates a new decorated window around given surface.
-    pub fn new(surface: &WlSurface, width: i32, height: i32,
+    pub fn new(surface: &WlSurface, width: i32, height: i32, display: &WlDisplay,
                compositor: &WlCompositor, subcompositor: &WlSubcompositor,
                shm: &WlShm, shell: &WlShell, seat: Option<WlSeat>)
         -> Result<DecoratedSurface, ()>
     {
-        let evts = EventIterator::new();
+        let evts = display.create_event_iterator();
         // handle Shm
         let pxcount = max(DECORATION_TOP_SIZE * DECORATION_SIZE,
             max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height)
@@ -251,20 +252,20 @@ impl DecoratedSurface {
         };
 
         let mut pool = shm.create_pool(tempfile.as_raw_fd(), (pxcount * 4) as i32);
-        pool.set_evt_iterator(&evts);
+        pool.set_event_iterator(&evts);
 
         // create surfaces
         let border_surfaces: Vec<_> = (0..4).map(|_| {
             let mut s = compositor.create_surface();
-            s.set_evt_iterator(&evts);
+            s.set_event_iterator(&evts);
             let mut ss = subcompositor.get_subsurface(&s, surface);
-            ss.set_evt_iterator(&evts);
+            ss.set_event_iterator(&evts);
             (s, ss)
         }).collect();
         for s in &border_surfaces { s.1.set_desync() }
 
         let mut shell_surface = shell.get_shell_surface(surface);
-        shell_surface.set_evt_iterator(&evts);
+        shell_surface.set_event_iterator(&evts);
         shell_surface.set_toplevel();
 
         // Pointer
@@ -276,7 +277,7 @@ impl DecoratedSurface {
                 for s in &border_surfaces {
                     surfaces.push(s.0.id());
                 }
-                pointer.set_evt_iterator(&evts);
+                pointer.set_event_iterator(&evts);
                 pointer
             });
 
