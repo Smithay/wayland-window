@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.4.0 -- 2016-10-03
+
+Update to wayland-client-0.7
+
 ## 0.3.0 -- 2016-05-29
 
 Update to wayland-client-0.6

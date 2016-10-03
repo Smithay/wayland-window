@@ -2,25 +2,24 @@ use std::cell::Cell;
 use std::ops::Deref;
 
 use wayland_client::cursor::{is_available, CursorTheme, load_theme};
-use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
-use wayland_client::wayland::shm::WlShm;
-use wayland_client::wayland::seat::WlPointer;
+use wayland_client::protocol::{wl_compositor,wl_shm,wl_surface,wl_pointer};
 
 pub struct ThemedPointer {
-    pointer: WlPointer,
-    surface: WlSurface,
+    pointer: wl_pointer::WlPointer,
+    surface: wl_surface::WlSurface,
     theme: CursorTheme,
     last_serial: Cell<u32>,
 }
 
 impl ThemedPointer {
-    pub fn load(pointer: WlPointer, name: Option<&str>, compositor: &WlCompositor, shm: &WlShm)
-        -> Result<ThemedPointer, WlPointer>
+    pub fn load(pointer: wl_pointer::WlPointer, name: Option<&str>,
+                compositor: &wl_compositor::WlCompositor, shm: &wl_shm::WlShm)
+        -> Result<ThemedPointer, wl_pointer::WlPointer>
     {
         if !is_available() { return Err(pointer) }
 
         let theme = load_theme(name, 16, shm);
-        let surface = compositor.create_surface();
+        let surface = compositor.create_surface().expect("Compositor cannot be destroyed");
 
         Ok(ThemedPointer {
             pointer: pointer,
@@ -45,8 +44,8 @@ impl ThemedPointer {
 }
 
 impl Deref for ThemedPointer {
-    type Target = WlPointer;
-    fn deref(&self) -> &WlPointer {
+    type Target = wl_pointer::WlPointer;
+    fn deref(&self) -> &wl_pointer::WlPointer {
         &self.pointer
     }
 }

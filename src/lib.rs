@@ -79,9 +79,10 @@
 
 extern crate byteorder;
 extern crate tempfile;
+#[macro_use]
 extern crate wayland_client;
 
 mod decorated_surface;
 mod themed_pointer;
 
-pub use decorated_surface::{DecoratedSurface, substract_borders, add_borders};
+pub use decorated_surface::{DecoratedSurface, substract_borders, add_borders, Handler};
