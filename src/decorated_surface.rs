@@ -331,7 +331,7 @@ impl<H: Handler> DecoratedSurface<H> {
     }
 }
 
-impl<H: Handler + ::std::any::Any + 'static> Init for DecoratedSurface<H> {
+impl<H: Handler + ::std::any::Any + Send + 'static> Init for DecoratedSurface<H> {
     fn init(&mut self, evqh: &mut EventQueueHandle, my_index: usize) {
         evqh.register::<_, DecoratedSurface<H>>(&self.shell_surface, my_index);
         match self.pointer_state.pointer {
