@@ -10,7 +10,7 @@ use tempfile::tempfile;
 use wayland_client::{Proxy, EventQueueHandle, Init};
 use wayland_client::protocol::{wl_surface, wl_shell, wl_compositor, wl_buffer, wl_subsurface,
                                wl_seat, wl_shm, wl_pointer, wl_shell_surface,
-                               wl_subcompositor, wl_shm_pool};
+                               wl_subcompositor, wl_shm_pool, wl_output};
 
 use super::themed_pointer::ThemedPointer;
 
@@ -142,7 +142,8 @@ pub struct DecoratedSurface<H: Handler> {
     buffer_capacity: usize,
     pointer_state: PointerState,
     seat: Option<wl_seat::WlSeat>,
-    handler: Option<H>
+    handler: Option<H>,
+    decorate: bool
 }
 
 impl<H: Handler> DecoratedSurface<H> {
@@ -151,6 +152,24 @@ impl<H: Handler> DecoratedSurface<H> {
     /// These values should be the dimentions of the internal surface of the
     /// window (the decorated window will thus be a little larger).
     pub fn resize(&mut self, width: i32, height: i32) {
+        // flush buffers
+        for b in self.buffers.drain(..) {
+            b.destroy();
+        }
+
+        self.width = width;
+        self.height = height;
+
+        // skip if not decorating
+        if !self.decorate {
+            for s in &self.pointer_state.surfaces {
+                s.attach(None, 0, 0);
+                s.commit();
+            }
+            return
+        }
+
+        // actually update the decorations
         let new_pxcount = max(DECORATION_TOP_SIZE * (DECORATION_SIZE * 2 + width),
             max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height)
         ) as usize;
@@ -160,8 +179,6 @@ impl<H: Handler> DecoratedSurface<H> {
             self.pool.resize((new_pxcount * 4) as i32);
             self.buffer_capacity = new_pxcount * 4;
         }
-        self.width = width;
-        self.height = height;
         self.pointer_state.surface_width = width;
         // rewrite the data
         self.tempfile.seek(SeekFrom::Start(0)).unwrap();
@@ -171,9 +188,6 @@ impl<H: Handler> DecoratedSurface<H> {
         }
         self.tempfile.flush().unwrap();
         // resize the borders
-        for b in self.buffers.drain(..) {
-            b.destroy();
-        }
         // top
         {
             let buffer = self.pool.create_buffer(
@@ -235,7 +249,8 @@ impl<H: Handler> DecoratedSurface<H> {
                subcompositor: &wl_subcompositor::WlSubcompositor,
                shm: &wl_shm::WlShm,
                shell: &wl_shell::WlShell,
-               seat: Option<wl_seat::WlSeat>)
+               seat: Option<wl_seat::WlSeat>,
+               decorate: bool)
         -> Result<DecoratedSurface<H>, ()>
     {
         // handle Shm
@@ -302,7 +317,8 @@ impl<H: Handler> DecoratedSurface<H> {
             buffer_capacity: pxcount * 4,
             pointer_state: pointer_state,
             seat: seat,
-            handler: None
+            handler: None,
+            decorate: decorate
         };
 
         me.resize(width, height);
@@ -325,6 +341,31 @@ impl<H: Handler> DecoratedSurface<H> {
     /// non-standard location) of the application's .desktop file as the class.
     pub fn set_class(&self, class: String) {
         self.shell_surface.set_class(class);
+    }
+
+    /// Turn on or off decoration of this surface
+    ///
+    /// Automatically disables fullscreen mode if it was set.
+    pub fn set_decorate(&mut self, decorate: bool) {
+        self.shell_surface.set_toplevel();
+        self.decorate = decorate;
+        // trigger redraw
+        let (w, h) = (self.width, self.height);
+        self.resize(w, h);
+    }
+
+    /// Sets this surface as fullscreen (see `wl_shell_surface` for details)
+    ///
+    /// Automatically disables decorations.
+    pub fn set_fullscreen(&mut self,
+        method: wl_shell_surface::FullscreenMethod,
+        framerate: u32,
+        output: Option<&wl_output::WlOutput>) {
+        self.shell_surface.set_fullscreen(method, framerate, output);
+        self.decorate = false;
+        // trigger redraw
+        let (w, h) = (self.width, self.height);
+        self.resize(w, h);
     }
 
     pub fn handler(&mut self) -> &mut Option<H> {

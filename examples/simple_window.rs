@@ -112,7 +112,8 @@ fn main() {
             &env.subcompositor,
             &env.shm,
             &env.shell,
-            seat
+            seat,
+            true
         ).unwrap();
 
         *(decorated_surface.handler()) = Some(window);
