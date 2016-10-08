@@ -68,7 +68,7 @@ impl PointerState {
         } else if self.surfaces[BORDER_LEFT].equals(surface) {
             self.location = PtrLocation::Left
         } else {
-            // should probably never happen ?
+            // A surface that we don't manage
             self.location = PtrLocation::None;
         }
         self.update(Some(serial), true);
@@ -390,7 +390,10 @@ impl<H: Handler> wl_pointer::Handler for DecoratedSurface<H> {
             },
             PtrLocation::Left => (wl_shell_surface::Left, true),
             PtrLocation::Right => (wl_shell_surface::Right, true),
-            PtrLocation::None => (wl_shell_surface::None, true)
+            PtrLocation::None => {
+                // pointer is not on a border, we must ignore the event
+                return
+            }
         };
         if let Some(ref seat) = self.seat {
             if resize {
