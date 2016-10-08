@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.4.1 -- 2016-10-08
+
+DecoratedSurface is now Send and require a Send handler.
+
 ## 0.4.0 -- 2016-10-03
 
 Update to wayland-client-0.7
