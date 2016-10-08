@@ -70,13 +70,14 @@ impl PointerState {
         } else {
             // A surface that we don't manage
             self.location = PtrLocation::None;
+            return
         }
         self.update(Some(serial), true);
     }
 
-    fn pointer_left(&mut self) {
+    fn pointer_left(&mut self, serial: u32) {
         self.location = PtrLocation::None;
-        self.change_pointer("left_ptr", None)
+        self.change_pointer("left_ptr", Some(serial))
     }
 
     fn update(&mut self, serial: Option<u32>, force: bool) {
@@ -347,8 +348,8 @@ impl<H: Handler> wl_pointer::Handler for DecoratedSurface<H> {
         self.pointer_state.coordinates = (x, y);
         self.pointer_state.pointer_entered(surface, serial);
     }
-    fn leave(&mut self, _: &mut EventQueueHandle, _: &wl_pointer::WlPointer, _: u32, _: &wl_surface::WlSurface) {
-        self.pointer_state.pointer_left();
+    fn leave(&mut self, _: &mut EventQueueHandle, _: &wl_pointer::WlPointer, serial: u32, _: &wl_surface::WlSurface) {
+        self.pointer_state.pointer_left(serial);
     }
     fn motion(&mut self, _: &mut EventQueueHandle, _: &wl_pointer::WlPointer, _: u32, x: f64, y: f64) {
         self.pointer_state.coordinates = (x, y);

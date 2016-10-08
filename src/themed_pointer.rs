@@ -32,14 +32,16 @@ impl ThemedPointer {
     pub fn set_cursor(&self, name: &str, serial: Option<u32>) {
         let cursor = if let Some(c) = self.theme.get_cursor(name) { c } else { return };
         let buffer = if let Some(b) = cursor.frame_buffer(0) { b } else { return };
-        let (hx, hy) = cursor.frame_info(0).map(|(_,_,hx,hy,_)| (hx as i32, hy as i32)).unwrap_or((0,0));
+        let (w, h, hx, hy) = cursor.frame_info(0)
+                                   .map(|(w,h,hx,hy,_)| (w as i32, h as i32, hx as i32, hy as i32))
+                                   .unwrap_or((0,0, 0, 0));
 
         if let Some(s) = serial { self.last_serial.set(s); }
 
-        self.pointer.set_cursor(self.last_serial.get(), Some(&self.surface), hx, hy);
-
         self.surface.attach(Some(&buffer), 0, 0);
+        self.surface.damage_buffer(0,0,w,h);
         self.surface.commit();
+        self.pointer.set_cursor(self.last_serial.get(), Some(&self.surface), hx, hy);
     }
 }
 
