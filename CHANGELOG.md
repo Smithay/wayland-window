@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.4.2 -- 2016-10-08
+
+- Better handling of cursor theming
+- Ability to diable decorations & go fullscreen
+
 ## 0.4.1 -- 2016-10-08
 
 DecoratedSurface is now Send and require a Send handler.
