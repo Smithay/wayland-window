@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::ops::Deref;
 
+use wayland_client::Proxy;
 use wayland_client::cursor::{is_available, CursorTheme, load_theme};
 use wayland_client::protocol::{wl_compositor,wl_shm,wl_surface,wl_pointer};
 
@@ -39,7 +40,13 @@ impl ThemedPointer {
         if let Some(s) = serial { self.last_serial.set(s); }
 
         self.surface.attach(Some(&buffer), 0, 0);
-        self.surface.damage_buffer(0,0,w,h);
+        if self.surface.version() >= 4 {
+            self.surface.damage_buffer(0,0,w,h);
+        } else {
+            // surface is old and does not support damage_buffer, so we damage
+            // in surface coordinates and hope it is not rescaled
+            self.surface.damage(0,0,w,h);
+        }
         self.surface.commit();
         self.pointer.set_cursor(self.last_serial.get(), Some(&self.surface), hx, hy);
     }
