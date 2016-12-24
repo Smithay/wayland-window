@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.4.3 -- 2016-12-24
+
+- Bugfix suface damaging on wl-surfaces of version <= 3 (kudos to @emilio for finding the bug,
+  details on https://github.com/vberger/wayland-client-rs/issues/75 )
+
 ## 0.4.2 -- 2016-10-08
 
 - Better handling of cursor theming
