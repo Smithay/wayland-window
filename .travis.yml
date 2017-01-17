@@ -7,3 +7,11 @@ rust:
 
 os:
   - linux
+
+notifications:
+    webhooks:
+        urls:
+            - "https://scalar.vector.im/api/neb/services/hooks/dHJhdmlzLWNpLyU0MGxldmFucyUzQXNhZmFyYWRlZy5uZXQvJTIxRkt4aGprSUNwakJWelZlQ2RGJTNBc2FmYXJhZGVnLm5ldA"
+        on_success: change
+        on_failure: always
+        on_start: never
