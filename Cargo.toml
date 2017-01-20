@@ -3,9 +3,13 @@ name = "wayland-window"
 version = "0.4.3"
 authors = ["Victor Berger <victor.berger@m4x.org>"]
 repository = "https://github.com/vberger/wayland-window"
-documentation = "http://vberger.github.io/wayland-window/wayland_window/"
+documentation = "https://vberger.github.io/wayland-window/wayland_window/"
 license = "MIT"
 description = "A minimalistic window-decorations library built on top of wayland-client."
+categories = ["gui"]
+
+[badges]
+travis-ci = { repository = "vberger/wayland-window" }
 
 [dependencies]
 byteorder = "0.5"
