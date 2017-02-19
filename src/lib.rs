@@ -79,7 +79,6 @@
 
 extern crate byteorder;
 extern crate tempfile;
-#[macro_use]
 extern crate wayland_client;
 
 mod decorated_surface;

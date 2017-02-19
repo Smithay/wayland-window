@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.4.5 -- 2017-02-19
+
+Upgrate wayland-client dependency
+
+## 0.4.4 -- 2017-02-02
+
+Upgrade byteorder dependency
+
 ## 0.4.3 -- 2016-12-24
 
 - Bugfix suface damaging on wl-surfaces of version <= 3 (kudos to @emilio for finding the bug,

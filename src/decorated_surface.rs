@@ -268,12 +268,10 @@ impl<H: Handler> DecoratedSurface<H> {
             Err(_) => return Err(())
         };
 
-        let pool = shm.create_pool(tempfile.as_raw_fd(), (pxcount * 4) as i32).expect("Shm cannot be destroyed");
+        let pool = shm.create_pool(tempfile.as_raw_fd(), (pxcount * 4) as i32);
 
         // create surfaces
-        let border_surfaces: Vec<_> = (0..4).map(|_| compositor.create_surface()
-                                                               .expect("Compositor cannot be destroyed")
-                                            )
+        let border_surfaces: Vec<_> = (0..4).map(|_| compositor.create_surface())
                                             .collect();
         let border_subsurfaces: Vec<_> = border_surfaces.iter()
                                                         .map(|s| subcompositor.get_subsurface(&s, surface)
@@ -282,7 +280,7 @@ impl<H: Handler> DecoratedSurface<H> {
                                                         .collect();
         for s in &border_subsurfaces { s.set_desync(); }
 
-        let shell_surface = shell.get_shell_surface(surface).expect("Shell cannot be destroyed");
+        let shell_surface = shell.get_shell_surface(surface);
         shell_surface.set_toplevel();
 
         // Pointer

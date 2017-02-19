@@ -20,7 +20,7 @@ impl ThemedPointer {
         if !is_available() { return Err(pointer) }
 
         let theme = load_theme(name, 16, shm);
-        let surface = compositor.create_surface().expect("Compositor cannot be destroyed");
+        let surface = compositor.create_surface();
 
         Ok(ThemedPointer {
             pointer: pointer,
