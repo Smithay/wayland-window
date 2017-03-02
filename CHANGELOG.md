@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.4.5 -- 2017-02-19
+## 0.5.0 -- 2017-03-02
 
 Upgrate wayland-client dependency
 
