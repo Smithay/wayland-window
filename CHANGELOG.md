@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.5.1 -- 2017-03-19
+
+wayland-window is compatible with wayland-client-0.9.x
+
 ## 0.5.0 -- 2017-03-02
 
 Upgrate wayland-client dependency
