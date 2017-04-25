@@ -2,6 +2,7 @@ extern crate byteorder;
 extern crate tempfile;
 #[macro_use]
 extern crate wayland_client;
+extern crate wayland_protocols;
 extern crate wayland_window;
 
 use byteorder::{WriteBytesExt, NativeEndian};
@@ -13,8 +14,8 @@ use std::os::unix::io::AsRawFd;
 use tempfile::tempfile;
 
 use wayland_client::{EventQueueHandle, EnvHandler};
-use wayland_client::protocol::{wl_surface, wl_shm_pool, wl_buffer, wl_compositor, wl_shell,
-                               wl_subcompositor, wl_shm, wl_shell_surface};
+use wayland_client::protocol::{wl_surface, wl_shm_pool, wl_buffer, wl_compositor, wl_subcompositor, wl_shm};
+use wayland_protocols::unstable::xdg_shell;
 
 use wayland_window::DecoratedSurface;
 
@@ -22,7 +23,7 @@ wayland_env!(WaylandEnv,
     compositor: wl_compositor::WlCompositor,
     subcompositor: wl_subcompositor::WlSubcompositor,
     shm: wl_shm::WlShm,
-    shell: wl_shell::WlShell
+    shell: xdg_shell::client::zxdg_shell_v6::ZxdgShellV6
 );
 
 struct Window {
@@ -35,8 +36,15 @@ struct Window {
 }
 
 impl wayland_window::Handler for Window {
-    fn configure(&mut self, _: &mut EventQueueHandle, _: wl_shell_surface::Resize, width: i32, height: i32) {
-        self.newsize = Some((width, height))
+    fn configure(&mut self, _: &mut EventQueueHandle, width: i32, height: i32) {
+        let w = std::cmp::max(width, 100);
+        let h = std::cmp::max(height, 100);
+        if width <= 0 || height <= 0 {
+            println!("WARNING: wayland_window::Handler::configure: Received invalid dimensions: \
+                     {:?}. Using {:?} instead.", (width, height), (w, h));
+        }
+        println!("\tconfigure: resizing to {:?}", (w, h));
+        self.newsize = Some((w, h))
     }
 }
 
@@ -94,9 +102,6 @@ fn main() {
                 break;
             }
         }
-
-        surface.attach(Some(&buffer), 0, 0);
-        surface.commit();
 
         let window = Window {
             s: surface,
