@@ -1,6 +1,10 @@
 # Change Log
 
-## 0.5.1 -- 2017-03-19
+## 0.6.0 -- 2017-05-29
+
+0.5.1 should have been 0.6.0
+
+## 0.5.1 -- 2017-03-19 [yanked]
 
 wayland-window is compatible with wayland-client-0.9.x
 

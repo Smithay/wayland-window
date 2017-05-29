@@ -1,6 +1,6 @@
 [package]
 name = "wayland-window"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["Victor Berger <victor.berger@m4x.org>"]
 repository = "https://github.com/vberger/wayland-window"
 documentation = "https://vberger.github.io/wayland-window/wayland_window/"
@@ -14,7 +14,7 @@ travis-ci = { repository = "vberger/wayland-window" }
 [dependencies]
 byteorder = "1.0"
 tempfile = "2.0"
-wayland-client = { version = ">=0.8.0, <0.10", features = ["cursor"] }
+wayland-client = { version = "0.9", features = ["cursor"] }
 
 [dev-dependencies]
-wayland-client = { version = ">=0.8.0, <0.10", features = ["cursor", "dlopen"] }
+wayland-client = { version = "0.9", features = ["cursor", "dlopen"] }
