@@ -10,4 +10,4 @@ releases.
 
 ## Usage
 Instructions of use are on the main page of the documentation,
-readable [here](http://vberger.github.io/wayland-window/wayland_window/).
+readable [on docs.rs](http://docs.rs/wayland-window/).

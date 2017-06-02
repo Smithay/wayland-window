@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.6.1 -- 2017-01-02
+
+Migrate repo to smithay org.
+
 ## 0.6.0 -- 2017-05-29
 
 0.5.1 should have been 0.6.0

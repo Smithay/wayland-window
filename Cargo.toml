@@ -1,15 +1,15 @@
 [package]
 name = "wayland-window"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Victor Berger <victor.berger@m4x.org>"]
-repository = "https://github.com/vberger/wayland-window"
-documentation = "https://vberger.github.io/wayland-window/wayland_window/"
+repository = "https://github.com/Smithay/wayland-window"
+documentation = "https://smithay.github.io/wayland-window/wayland_window/"
 license = "MIT"
 description = "A minimalistic window-decorations library built on top of wayland-client."
 categories = ["gui"]
 
 [badges]
-travis-ci = { repository = "vberger/wayland-window" }
+travis-ci = { repository = "Smithay/wayland-window" }
 
 [dependencies]
 byteorder = "1.0"
