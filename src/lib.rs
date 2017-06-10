@@ -84,5 +84,7 @@ extern crate wayland_client;
 
 mod decorated_surface;
 mod themed_pointer;
+mod shell;
 
 pub use decorated_surface::{DecoratedSurface, subtract_borders, add_borders, Handler};
+pub use shell::{Configure, Shell};

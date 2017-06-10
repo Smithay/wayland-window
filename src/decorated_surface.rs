@@ -11,8 +11,8 @@ use wayland_client::{self, Proxy, EventQueueHandle, Init};
 use wayland_client::protocol::{wl_surface, wl_compositor, wl_buffer, wl_subsurface, wl_seat,
                                wl_shm, wl_pointer, wl_shell_surface, wl_subcompositor, wl_shm_pool,
                                wl_output};
-use wayland_protocols::unstable::xdg_shell;
 use super::themed_pointer::ThemedPointer;
+use shell::{self, Shell};
 
 // The surfaces handling the borders, 8 total, are organised this way:
 //
@@ -133,7 +133,7 @@ impl PointerState {
 /// resizing and moving of the window. See the root documentation of
 /// this crate for explanations about how to use it.
 pub struct DecoratedSurface<H: Handler> {
-    xdg: Xdg,
+    shell_surface: shell::Surface,
     border_subsurfaces: Vec<wl_subsurface::WlSubsurface>,
     buffers: Vec<wl_buffer::WlBuffer>,
     tempfile: File,
@@ -147,11 +147,23 @@ pub struct DecoratedSurface<H: Handler> {
     decorate: bool
 }
 
-struct Xdg {
-    toplevel: xdg_shell::client::zxdg_toplevel_v6::ZxdgToplevelV6,
-    surface: xdg_shell::client::zxdg_surface_v6::ZxdgSurfaceV6,
+// Retrieves the handler from the `DecoratedSurface`.
+//
+// Only for use by other modules in this crate within handler implementations.
+pub fn handler_mut<H>(decorated_surface: &mut DecoratedSurface<H>) -> Option<&mut H>
+    where H: Handler,
+{
+    decorated_surface.handler.as_mut()
 }
 
+// Retrieves the shell_surface from the `DecoratedSurface`.
+//
+// Only for use by other modules in this crate within handler implementations.
+pub fn shell_surface<H>(decorated_surface: &DecoratedSurface<H>) -> &shell::Surface
+    where H: Handler,
+{
+    &decorated_surface.shell_surface
+}
 
 impl<H: Handler> DecoratedSurface<H> {
     /// Resizes the borders to given width and height.
@@ -255,7 +267,7 @@ impl<H: Handler> DecoratedSurface<H> {
                compositor: &wl_compositor::WlCompositor,
                subcompositor: &wl_subcompositor::WlSubcompositor,
                shm: &wl_shm::WlShm,
-               shell: &xdg_shell::client::zxdg_shell_v6::ZxdgShellV6,
+               shell: &Shell,
                seat: Option<wl_seat::WlSeat>,
                decorate: bool)
         -> Result<DecoratedSurface<H>, ()>
@@ -285,10 +297,7 @@ impl<H: Handler> DecoratedSurface<H> {
         }).collect();
         for s in &border_subsurfaces { s.set_desync(); }
 
-        // Create the `xdg_surface` and assign the `toplevel` role.
-        let xdg_surface = shell.get_xdg_surface(surface).expect("shell cannot be destroyed");
-        let toplevel = xdg_surface.get_toplevel().expect("xdg_surface cannot be destroyed");
-        surface.commit();
+        let shell_surface = shell::Surface::from_shell(surface, shell);
 
         // Pointer
         let pointer_state = {
@@ -312,10 +321,7 @@ impl<H: Handler> DecoratedSurface<H> {
         };
 
         let mut me = DecoratedSurface {
-            xdg: Xdg {
-                toplevel: toplevel,
-                surface: xdg_surface,
-            },
+            shell_surface: shell_surface,
             border_subsurfaces: border_subsurfaces,
             buffers: Vec::new(),
             tempfile: tempfile,
@@ -339,22 +345,36 @@ impl<H: Handler> DecoratedSurface<H> {
     /// This string may be used to identify the surface in a task bar, window list, or other user
     /// interface elements provided by the compositor.
     pub fn set_title(&self, title: String) {
-        self.xdg.toplevel.set_title(title);
+        match self.shell_surface {
+            shell::Surface::Xdg(ref xdg) => {
+                xdg.toplevel.set_title(title);
+            },
+            shell::Surface::Wl(ref wl) => {
+                wl.set_title(title);
+            },
+        }
     }
 
-    // /// Set a class for the surface.
-    // ///
-    // /// The surface class identifies the general class of applications to which the surface
-    // /// belongs. A common convention is to use the file name (or the full path if it is a
-    // /// non-standard location) of the application's .desktop file as the class.
-    // pub fn set_class(&self, class: String) {
-    //     self.shell_surface.set_class(class);
-    // }
+    /// Set a class for the surface.
+    ///
+    /// The surface class identifies the general class of applications to which the surface
+    /// belongs. A common convention is to use the file name (or the full path if it is a
+    /// non-standard location) of the application's .desktop file as the class.
+    ///
+    /// Note: This is ignored when using `xdg_shell`. Not sure if it should be handled.
+    pub fn set_class(&self, class: String) {
+        if let shell::Surface::Wl(ref wl) = self.shell_surface {
+            wl.set_class(class);
+        }
+    }
 
     /// Turn on or off decoration of this surface
     ///
     /// Automatically disables fullscreen mode if it was set.
     pub fn set_decorate(&mut self, decorate: bool) {
+        if let shell::Surface::Wl(ref surface) = self.shell_surface {
+            surface.set_toplevel();
+        }
         self.decorate = decorate;
         // trigger redraw
         let (w, h) = (self.width, self.height);
@@ -364,8 +384,23 @@ impl<H: Handler> DecoratedSurface<H> {
     /// Sets this surface as fullscreen (see `wl_shell_surface` for details)
     ///
     /// Automatically disables decorations.
-    pub fn set_fullscreen(&mut self, output: Option<&wl_output::WlOutput>) {
-        self.xdg.toplevel.set_fullscreen(output);
+    ///
+    /// Note: When using `xdg_shell`, the requested `FullscreenMethod` and `framerate` will be
+    /// ignored. Not sure if some way of handling these arguments should be added to the xdg_shell?
+    pub fn set_fullscreen(
+        &mut self,
+        method: wl_shell_surface::FullscreenMethod,
+        framerate: u32,
+        output: Option<&wl_output::WlOutput>,
+    ) {
+        match self.shell_surface {
+            shell::Surface::Xdg(ref mut xdg) => {
+                xdg.toplevel.set_fullscreen(output);
+            },
+            shell::Surface::Wl(ref mut shell_surface) => {
+                shell_surface.set_fullscreen(method, framerate, output);
+            },
+        }
         self.decorate = false;
         // trigger redraw
         let (w, h) = (self.width, self.height);
@@ -379,8 +414,15 @@ impl<H: Handler> DecoratedSurface<H> {
 
 impl<H: Handler + ::std::any::Any + Send + 'static> Init for DecoratedSurface<H> {
     fn init(&mut self, evqh: &mut EventQueueHandle, my_index: usize) {
-        evqh.register::<_, DecoratedSurface<H>>(&self.xdg.toplevel, my_index);
-        evqh.register::<_, DecoratedSurface<H>>(&self.xdg.surface, my_index);
+        match self.shell_surface {
+            shell::Surface::Xdg(ref xdg) => {
+                evqh.register::<_, DecoratedSurface<H>>(&xdg.toplevel, my_index);
+                evqh.register::<_, DecoratedSurface<H>>(&xdg.surface, my_index);
+            },
+            shell::Surface::Wl(ref shell_surface) => {
+                evqh.register::<_, DecoratedSurface<H>>(shell_surface, my_index);
+            },
+        }
         match self.pointer_state.pointer {
             Pointer::Plain(ref pointer) => { evqh.register::<_, DecoratedSurface<H>>(pointer, my_index); },
             Pointer::Themed(ref pointer) => { evqh.register::<_, DecoratedSurface<H>>(&**pointer, my_index); },
@@ -443,10 +485,19 @@ impl<H: Handler> wl_pointer::Handler for DecoratedSurface<H> {
             }
         };
         if let Some(ref seat) = self.seat {
-            if resize {
-                self.xdg.toplevel.resize(&seat, serial, direction.to_raw());
-            } else {
-                self.xdg.toplevel._move(&seat, serial);
+            match self.shell_surface {
+                shell::Surface::Xdg(ref xdg) if resize => {
+                    xdg.toplevel.resize(&seat, serial, direction.to_raw());
+                },
+                shell::Surface::Xdg(ref xdg) => {
+                    xdg.toplevel._move(&seat, serial);
+                },
+                shell::Surface::Wl(ref wl) if resize => {
+                    wl.resize(&seat, serial, direction);
+                },
+                shell::Surface::Wl(ref wl) => {
+                    wl._move(&seat, serial);
+                },
             }
         }
     }
@@ -476,102 +527,8 @@ pub fn add_borders(width: i32, height: i32) -> (i32, i32) {
 }
 
 
-/////////////////////////////////////////
-// xdg_shell `Handler` implementations //
-/////////////////////////////////////////
-
-
-#[cfg(feature = "xdg_shell")]
 pub trait Handler {
-    fn configure(&mut self, evqh: &mut EventQueueHandle, width: i32, height: i32);
-}
-
-#[cfg(feature = "xdg_shell")]
-unsafe impl<H: Handler> wayland_client::Handler<xdg_shell::client::zxdg_toplevel_v6::ZxdgToplevelV6> for DecoratedSurface<H> {
-    unsafe fn message(&mut self,
-                      evq: &mut EventQueueHandle,
-                      proxy: &xdg_shell::client::zxdg_toplevel_v6::ZxdgToplevelV6,
-                      opcode: u32,
-                      args: *const wayland_client::sys::wl_argument) -> Result<(),()>
-    {
-        <DecoratedSurface<H> as xdg_shell::client::zxdg_toplevel_v6::Handler>::__message(self, evq, proxy, opcode, args)
-    }
-}
-
-#[cfg(feature = "xdg_shell")]
-unsafe impl<H: Handler> wayland_client::Handler<xdg_shell::client::zxdg_surface_v6::ZxdgSurfaceV6> for DecoratedSurface<H> {
-    unsafe fn message(&mut self,
-                      evq: &mut EventQueueHandle,
-                      proxy: &xdg_shell::client::zxdg_surface_v6::ZxdgSurfaceV6,
-                      opcode: u32,
-                      args: *const wayland_client::sys::wl_argument) -> Result<(),()>
-    {
-        <DecoratedSurface<H> as xdg_shell::client::zxdg_surface_v6::Handler>::__message(self, evq, proxy, opcode, args)
-    }
-}
-
-#[cfg(feature = "xdg_shell")]
-impl<H: Handler> xdg_shell::client::zxdg_toplevel_v6::Handler for DecoratedSurface<H> {
-
-    fn configure(&mut self,
-                 evqh: &mut EventQueueHandle,
-                 _proxy: &xdg_shell::client::zxdg_toplevel_v6::ZxdgToplevelV6,
-                 width: i32, height: i32,
-                 _states: Vec<u8>)
-    {
-        // NOTE: Not sure if/how `_states` should be handled here.
-        if let Some(ref mut handler) = self.handler {
-            let (w, h) = subtract_borders(width, height);
-            handler.configure(evqh, max(w, 1), max(h, 1));
-        }
-    }
-
-    fn close(&mut self,
-             _evqh: &mut EventQueueHandle,
-             _proxy: &xdg_shell::client::zxdg_toplevel_v6::ZxdgToplevelV6)
-    {
-        // NOTE: Should there be a method on `Handler` for this?
-    }
-}
-
-#[cfg(feature = "xdg_shell")]
-impl<H: Handler> xdg_shell::client::zxdg_surface_v6::Handler for DecoratedSurface<H> {
-
-    fn configure(&mut self,
-                 _evqh: &mut EventQueueHandle,
-                 _proxy: &xdg_shell::client::zxdg_surface_v6::ZxdgSurfaceV6,
-                 serial: u32)
-    {
-        self.xdg.surface.ack_configure(serial).expect("surface cannot be destroyed");
-    }
-
+    fn configure(&mut self, &mut EventQueueHandle, shell::Configure, width: i32, height: i32);
 }
 
 
-////////////////////////////////////////
-// wl_shell `Handler` implementations //
-////////////////////////////////////////
-
-
-#[cfg(not(feature = "xdg_shell"))]
-pub trait Handler {
-    fn configure(&mut self, evqh: &mut EventQueueHandle, edges: wl_shell_surface::Resize, width: i32, height: i32);
-}
-
-impl<H: Handler> wl_shell_surface::Handler for DecoratedSurface<H> {
-    fn ping(&mut self, _: &mut EventQueueHandle, me: &wl_shell_surface::WlShellSurface, serial: u32) {
-        me.pong(serial);
-    }
-    fn configure(&mut self, evqh: &mut EventQueueHandle, _: &wl_shell_surface::WlShellSurface, _edges: wl_shell_surface::Resize, width: i32, height: i32) {
-        if let Some(ref mut handler) = self.handler {
-            let (w, h) = subtract_borders(width, height);
-            handler.configure(evqh, w, h)
-        }
-    }
-}
-
-unsafe impl<H: Handler> wayland_client::Handler<wl_shell_surface::WlShellSurface> for DecoratedSurface<H> {
-    unsafe fn message(&mut self, evq: &mut EventQueueHandle, proxy: &wl_shell_surface::WlShellSurface, opcode: u32, args: *const wayland_client::sys::wl_argument) -> Result<(),()> {
-        <DecoratedSurface<H> as wayland_client::protocol::wl_shell_surface::Handler>::__message(self, evq, proxy, opcode, args)
-    }
-}
