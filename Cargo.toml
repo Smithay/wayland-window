@@ -15,11 +15,7 @@ travis-ci = { repository = "Smithay/wayland-window" }
 byteorder = "1.0"
 tempfile = "2.0"
 wayland-client = { version = "0.9", features = ["cursor"] }
-wayland-protocols = { optional = true, version = "0.9", features = ["client", "unstable_protocols"] }
+wayland-protocols = { version = "0.9", features = ["client", "unstable_protocols"] }
 
 [dev-dependencies]
 wayland-client = { version = "0.9", features = ["cursor", "dlopen"] }
-
-[features]
-xdg_shell = ["wayland-protocols"]
-default = ["xdg_shell"]

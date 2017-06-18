@@ -70,7 +70,7 @@ fn main() {
     event_queue.register::<_, EnvHandler<WaylandEnv>>(&registry, 0);
     event_queue.sync_roundtrip().unwrap();
 
-    // Use XdgShell if its available. Otherwise, fall back to WlShell.
+    // Use `xdg-shell` if its available. Otherwise, fall back to `wl-shell`.
     let (mut xdg_shell, mut wl_shell) = (None, None);
     {
         let state = event_queue.state();

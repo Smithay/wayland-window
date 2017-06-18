@@ -80,7 +80,7 @@
 extern crate byteorder;
 extern crate tempfile;
 extern crate wayland_client;
-#[cfg(feature = "xdg_shell")] extern crate wayland_protocols;
+extern crate wayland_protocols;
 
 mod decorated_surface;
 mod themed_pointer;
