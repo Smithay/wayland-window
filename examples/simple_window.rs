@@ -13,17 +13,16 @@ use std::os::unix::io::AsRawFd;
 
 use tempfile::tempfile;
 
-use wayland_client::{EventQueueHandle, EnvHandler};
-use wayland_client::protocol::{wl_surface, wl_shm_pool, wl_buffer, wl_compositor, wl_subcompositor, wl_shm};
-use wayland_protocols::unstable::xdg_shell;
+use wayland_client::{EventQueueHandle, EnvHandler, Proxy};
+use wayland_client::protocol::{wl_shell, wl_surface, wl_shm_pool, wl_buffer, wl_compositor,
+                               wl_subcompositor, wl_shm};
 
 use wayland_window::DecoratedSurface;
 
 wayland_env!(WaylandEnv,
     compositor: wl_compositor::WlCompositor,
     subcompositor: wl_subcompositor::WlSubcompositor,
-    shm: wl_shm::WlShm,
-    shell: xdg_shell::client::zxdg_shell_v6::ZxdgShellV6
+    shm: wl_shm::WlShm
 );
 
 struct Window {
@@ -39,11 +38,6 @@ impl wayland_window::Handler for Window {
     fn configure(&mut self, _: &mut EventQueueHandle, _conf: wayland_window::Configure, width: i32, height: i32) {
         let w = std::cmp::max(width, 100);
         let h = std::cmp::max(height, 100);
-        if width <= 0 || height <= 0 {
-            println!("WARNING: wayland_window::Handler::configure: Received invalid dimensions: \
-                     {:?}. Using {:?} instead.", (width, height), (w, h));
-        }
-        println!("\tconfigure: resizing to {:?}", (w, h));
         self.newsize = Some((w, h))
     }
 }
@@ -73,10 +67,43 @@ fn main() {
 
     event_queue.add_handler(EnvHandler::<WaylandEnv>::new());
     let registry = display.get_registry();
-    event_queue.register::<_, EnvHandler<WaylandEnv>>(&registry,0);
+    event_queue.register::<_, EnvHandler<WaylandEnv>>(&registry, 0);
     event_queue.sync_roundtrip().unwrap();
 
-     // create a tempfile to write the conents of the window on
+    // Use XdgShell if its available. Otherwise, fall back to WlShell.
+    let (mut xdg_shell, mut wl_shell) = (None, None);
+    {
+        let state = event_queue.state();
+        let env = state.get_handler::<EnvHandler<WaylandEnv>>(0);
+        for &(name, ref interface, version) in env.globals() {
+            use wayland_protocols::unstable::xdg_shell::client::zxdg_shell_v6::ZxdgShellV6;
+            if interface == ZxdgShellV6::interface_name() {
+                xdg_shell = Some(registry.bind::<ZxdgShellV6>(version, name));
+                break;
+            }
+        }
+
+        if xdg_shell.is_none() {
+            for &(name, ref interface, version) in env.globals() {
+                if interface == wl_shell::WlShell::interface_name() {
+                    wl_shell = Some(registry.bind::<wl_shell::WlShell>(version, name));
+                    break;
+                }
+            }
+        }
+    }
+
+    let shell = match (xdg_shell, wl_shell) {
+        (Some(shell), _) => {
+            wayland_window::Shell::Xdg(shell)
+        },
+        (_, Some(shell)) => {
+            wayland_window::Shell::Wl(shell)
+        },
+        _ => panic!("No available shell"),
+    };
+
+    // create a tempfile to write the contents of the window on
     let mut tmp = tempfile().ok().expect("Unable to create a tempfile.");
     // write the contents to it, lets put everything in dark red
     for _ in 0..16 {
@@ -116,7 +143,7 @@ fn main() {
             &env.compositor,
             &env.subcompositor,
             &env.shm,
-            &env.shell,
+            &shell,
             seat,
             true
         ).unwrap();
