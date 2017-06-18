@@ -38,7 +38,11 @@ impl wayland_window::Handler for Window {
     fn configure(&mut self, _: &mut EventQueueHandle, _conf: wayland_window::Configure, width: i32, height: i32) {
         let w = std::cmp::max(width, 100);
         let h = std::cmp::max(height, 100);
+        println!("configure: {:?}", (w, h));
         self.newsize = Some((w, h))
+    }
+    fn close(&mut self, _: &mut EventQueueHandle) {
+        println!("close window");
     }
 }
 

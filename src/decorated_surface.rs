@@ -529,6 +529,5 @@ pub fn add_borders(width: i32, height: i32) -> (i32, i32) {
 
 pub trait Handler {
     fn configure(&mut self, &mut EventQueueHandle, shell::Configure, width: i32, height: i32);
+    fn close(&mut self, &mut EventQueueHandle);
 }
-
-

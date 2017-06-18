@@ -69,8 +69,10 @@ impl<H> xdg_shell::client::zxdg_toplevel_v6::Handler for DecoratedSurface<H>
         }
     }
 
-    fn close(&mut self, _evqh: &mut EventQueueHandle, _proxy: &ZxdgToplevelV6) {
-        // NOTE: Should there be a method on `Handler` for this?
+    fn close(&mut self, evqh: &mut EventQueueHandle, _proxy: &ZxdgToplevelV6) {
+        if let Some(handler) = decorated_surface::handler_mut(self) {
+            handler.close(evqh);
+        }
     }
 }
 
