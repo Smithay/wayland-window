@@ -391,19 +391,15 @@ impl<H: Handler> DecoratedSurface<H> {
     ///
     /// Automatically disables decorations.
     ///
-    /// Note: When using `xdg_shell`, the requested `FullscreenMethod` and `framerate` will be
-    /// ignored. Not sure if some way of handling these arguments should be added to the xdg_shell?
-    pub fn set_fullscreen(
-        &mut self,
-        method: wl_shell_surface::FullscreenMethod,
-        framerate: u32,
-        output: Option<&wl_output::WlOutput>,
-    ) {
+    /// When using wl-shell, this uses the default fullscreen method and framerate.
+    pub fn set_fullscreen(&mut self, output: Option<&wl_output::WlOutput>) {
         match self.shell_surface {
             shell::Surface::Xdg(ref mut xdg) => {
                 xdg.toplevel.set_fullscreen(output);
             },
             shell::Surface::Wl(ref mut shell_surface) => {
+                let method = wl_shell_surface::FullscreenMethod::Default;
+                let framerate = 0; // Let the server decide the framerate.
                 shell_surface.set_fullscreen(method, framerate, output);
             },
         }
