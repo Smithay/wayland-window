@@ -16,6 +16,7 @@ use tempfile::tempfile;
 use wayland_client::{EventQueueHandle, EnvHandler, Proxy};
 use wayland_client::protocol::{wl_shell, wl_surface, wl_shm_pool, wl_buffer, wl_compositor,
                                wl_subcompositor, wl_shm};
+use wayland_protocols::unstable::xdg_shell::client::zxdg_shell_v6::{self, ZxdgShellV6};
 
 use wayland_window::DecoratedSurface;
 
@@ -69,7 +70,7 @@ fn main() {
         Err(e) => panic!("Cannot connect to wayland server: {:?}", e)
     };
 
-    event_queue.add_handler(EnvHandler::<WaylandEnv>::new());
+    let env_id = event_queue.add_handler(EnvHandler::<WaylandEnv>::new());
     let registry = display.get_registry();
     event_queue.register::<_, EnvHandler<WaylandEnv>>(&registry, 0);
     event_queue.sync_roundtrip().unwrap();
@@ -78,9 +79,8 @@ fn main() {
     let (mut xdg_shell, mut wl_shell) = (None, None);
     {
         let state = event_queue.state();
-        let env = state.get_handler::<EnvHandler<WaylandEnv>>(0);
+        let env = state.get_handler::<EnvHandler<WaylandEnv>>(env_id);
         for &(name, ref interface, version) in env.globals() {
-            use wayland_protocols::unstable::xdg_shell::client::zxdg_shell_v6::ZxdgShellV6;
             if interface == ZxdgShellV6::interface_name() {
                 xdg_shell = Some(registry.bind::<ZxdgShellV6>(version, name));
                 break;
@@ -99,11 +99,25 @@ fn main() {
 
     let shell = match (xdg_shell, wl_shell) {
         (Some(shell), _) => {
+            // If using xdg-shell, we'll need to answer the pings.
+            struct ZxdgShellPingHandler;
+
+            impl zxdg_shell_v6::Handler for ZxdgShellPingHandler {
+                fn ping(&mut self, _: &mut EventQueueHandle, proxy: &ZxdgShellV6, serial: u32) {
+                    proxy.pong(serial);
+                }
+            }
+
+            declare_handler!(ZxdgShellPingHandler, zxdg_shell_v6::Handler, ZxdgShellV6);
+
+            let ping_handler_id = event_queue.add_handler(ZxdgShellPingHandler);
+            event_queue.register::<_, ZxdgShellPingHandler>(&shell, ping_handler_id);
             wayland_window::Shell::Xdg(shell)
         },
         (_, Some(shell)) => {
             wayland_window::Shell::Wl(shell)
         },
+
         _ => panic!("No available shell"),
     };
 
@@ -156,7 +170,7 @@ fn main() {
         decorated_surface
     };
 
-    event_queue.add_handler_with_init(decorated_surface);
+    let decorated_surface_id = event_queue.add_handler_with_init(decorated_surface);
 
     loop {
         display.flush().unwrap();
@@ -164,7 +178,7 @@ fn main() {
 
         // resize if needed
         let mut state = event_queue.state();
-        let mut decorated_surface = state.get_mut_handler::<DecoratedSurface<Window>>(1);
+        let mut decorated_surface = state.get_mut_handler::<DecoratedSurface<Window>>(decorated_surface_id);
         if let Some((w, h)) = decorated_surface.handler().as_mut().unwrap().newsize.take() {
             decorated_surface.resize(w, h);
             decorated_surface.handler().as_mut().unwrap().resize(w, h);
