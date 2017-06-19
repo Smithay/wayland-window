@@ -65,7 +65,7 @@ impl<H> xdg_shell::client::zxdg_toplevel_v6::Handler for DecoratedSurface<H>
         if let Some(handler) = decorated_surface::handler_mut(self) {
             let (w, h) = decorated_surface::subtract_borders(width, height);
             let configure = super::Configure::Xdg;
-            handler.configure(evqh, configure, max(w, 1), max(h, 1));
+            handler.configure(evqh, configure, w, h);
         }
     }
 
