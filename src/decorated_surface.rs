@@ -361,10 +361,16 @@ impl<H: Handler> DecoratedSurface<H> {
     /// belongs. A common convention is to use the file name (or the full path if it is a
     /// non-standard location) of the application's .desktop file as the class.
     ///
-    /// Note: This is ignored when using `xdg_shell`. Not sure if it should be handled.
+    /// When using xdg-shell, this calls `ZxdgTopLevelV6::set_app_id`.
+    /// When using wl-shell, this calls `WlShellSurface::set_class`.
     pub fn set_class(&self, class: String) {
-        if let shell::Surface::Wl(ref wl) = self.shell_surface {
-            wl.set_class(class);
+        match self.shell_surface {
+            shell::Surface::Xdg(ref xdg) => {
+                xdg.toplevel.set_app_id(class);
+            },
+            shell::Surface::Wl(ref wl) => {
+                wl.set_class(class);
+            },
         }
     }
 
