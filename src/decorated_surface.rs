@@ -529,7 +529,19 @@ pub fn add_borders(width: i32, height: i32) -> (i32, i32) {
 }
 
 
+/// For handling events that occur to a DecoratedSurface.
 pub trait Handler {
+    /// Called whenever the DecoratedSurface has been resized.
+    ///
+    /// **Note:** `width` and `height` will not always be positive values. Values can be negative
+    /// if a user attempts to resize the window past the left or top borders. As a result, it is
+    /// recommended that users specify some reasonable bounds. E.g.
+    ///
+    /// ```ignore
+    /// let width = max(width, min_width);
+    /// let height = max(height, min_height);
+    /// ```
     fn configure(&mut self, &mut EventQueueHandle, shell::Configure, width: i32, height: i32);
+    /// Called when the DecoratedSurface is closed.
     fn close(&mut self, &mut EventQueueHandle);
 }
