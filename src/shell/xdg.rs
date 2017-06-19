@@ -1,5 +1,4 @@
 use decorated_surface::{self, DecoratedSurface};
-use std::cmp::max;
 use wayland_client::{self, EventQueueHandle};
 use wayland_protocols::unstable::xdg_shell;
 use wayland_protocols::unstable::xdg_shell::client::zxdg_toplevel_v6::ZxdgToplevelV6;
