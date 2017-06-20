@@ -2,6 +2,7 @@ extern crate byteorder;
 extern crate tempfile;
 #[macro_use]
 extern crate wayland_client;
+extern crate wayland_protocols;
 extern crate wayland_window;
 
 use byteorder::{WriteBytesExt, NativeEndian};
@@ -12,17 +13,17 @@ use std::os::unix::io::AsRawFd;
 
 use tempfile::tempfile;
 
-use wayland_client::{EventQueueHandle, EnvHandler};
-use wayland_client::protocol::{wl_surface, wl_shm_pool, wl_buffer, wl_compositor, wl_shell,
-                               wl_subcompositor, wl_shm, wl_shell_surface};
+use wayland_client::{EventQueueHandle, EnvHandler, Proxy};
+use wayland_client::protocol::{wl_shell, wl_surface, wl_shm_pool, wl_buffer, wl_compositor,
+                               wl_subcompositor, wl_shm};
+use wayland_protocols::unstable::xdg_shell::client::zxdg_shell_v6::{self, ZxdgShellV6};
 
 use wayland_window::DecoratedSurface;
 
 wayland_env!(WaylandEnv,
     compositor: wl_compositor::WlCompositor,
     subcompositor: wl_subcompositor::WlSubcompositor,
-    shm: wl_shm::WlShm,
-    shell: wl_shell::WlShell
+    shm: wl_shm::WlShm
 );
 
 struct Window {
@@ -35,8 +36,14 @@ struct Window {
 }
 
 impl wayland_window::Handler for Window {
-    fn configure(&mut self, _: &mut EventQueueHandle, _: wl_shell_surface::Resize, width: i32, height: i32) {
-        self.newsize = Some((width, height))
+    fn configure(&mut self, _: &mut EventQueueHandle, _conf: wayland_window::Configure, width: i32, height: i32) {
+        let w = std::cmp::max(width, 100);
+        let h = std::cmp::max(height, 100);
+        println!("configure: {:?}", (w, h));
+        self.newsize = Some((w, h))
+    }
+    fn close(&mut self, _: &mut EventQueueHandle) {
+        println!("close window");
     }
 }
 
@@ -63,12 +70,58 @@ fn main() {
         Err(e) => panic!("Cannot connect to wayland server: {:?}", e)
     };
 
-    event_queue.add_handler(EnvHandler::<WaylandEnv>::new());
+    let env_id = event_queue.add_handler(EnvHandler::<WaylandEnv>::new());
     let registry = display.get_registry();
-    event_queue.register::<_, EnvHandler<WaylandEnv>>(&registry,0);
+    event_queue.register::<_, EnvHandler<WaylandEnv>>(&registry, 0);
     event_queue.sync_roundtrip().unwrap();
 
-     // create a tempfile to write the conents of the window on
+    // Use `xdg-shell` if its available. Otherwise, fall back to `wl-shell`.
+    let (mut xdg_shell, mut wl_shell) = (None, None);
+    {
+        let state = event_queue.state();
+        let env = state.get_handler::<EnvHandler<WaylandEnv>>(env_id);
+        for &(name, ref interface, version) in env.globals() {
+            if interface == ZxdgShellV6::interface_name() {
+                xdg_shell = Some(registry.bind::<ZxdgShellV6>(version, name));
+                break;
+            }
+        }
+
+        if xdg_shell.is_none() {
+            for &(name, ref interface, version) in env.globals() {
+                if interface == wl_shell::WlShell::interface_name() {
+                    wl_shell = Some(registry.bind::<wl_shell::WlShell>(version, name));
+                    break;
+                }
+            }
+        }
+    }
+
+    let shell = match (xdg_shell, wl_shell) {
+        (Some(shell), _) => {
+            // If using xdg-shell, we'll need to answer the pings.
+            struct ZxdgShellPingHandler;
+
+            impl zxdg_shell_v6::Handler for ZxdgShellPingHandler {
+                fn ping(&mut self, _: &mut EventQueueHandle, proxy: &ZxdgShellV6, serial: u32) {
+                    proxy.pong(serial);
+                }
+            }
+
+            declare_handler!(ZxdgShellPingHandler, zxdg_shell_v6::Handler, ZxdgShellV6);
+
+            let ping_handler_id = event_queue.add_handler(ZxdgShellPingHandler);
+            event_queue.register::<_, ZxdgShellPingHandler>(&shell, ping_handler_id);
+            wayland_window::Shell::Xdg(shell)
+        },
+        (_, Some(shell)) => {
+            wayland_window::Shell::Wl(shell)
+        },
+
+        _ => panic!("No available shell"),
+    };
+
+    // create a tempfile to write the contents of the window on
     let mut tmp = tempfile().ok().expect("Unable to create a tempfile.");
     // write the contents to it, lets put everything in dark red
     for _ in 0..16 {
@@ -95,9 +148,6 @@ fn main() {
             }
         }
 
-        surface.attach(Some(&buffer), 0, 0);
-        surface.commit();
-
         let window = Window {
             s: surface,
             tmp: tmp,
@@ -111,7 +161,7 @@ fn main() {
             &env.compositor,
             &env.subcompositor,
             &env.shm,
-            &env.shell,
+            &shell,
             seat,
             true
         ).unwrap();
@@ -120,7 +170,7 @@ fn main() {
         decorated_surface
     };
 
-    event_queue.add_handler_with_init(decorated_surface);
+    let decorated_surface_id = event_queue.add_handler_with_init(decorated_surface);
 
     loop {
         display.flush().unwrap();
@@ -128,7 +178,7 @@ fn main() {
 
         // resize if needed
         let mut state = event_queue.state();
-        let mut decorated_surface = state.get_mut_handler::<DecoratedSurface<Window>>(1);
+        let mut decorated_surface = state.get_mut_handler::<DecoratedSurface<Window>>(decorated_surface_id);
         if let Some((w, h)) = decorated_surface.handler().as_mut().unwrap().newsize.take() {
             decorated_surface.resize(w, h);
             decorated_surface.handler().as_mut().unwrap().resize(w, h);

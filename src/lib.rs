@@ -49,7 +49,7 @@
 //!     newsize = Some((x, y))
 //! }
 //! if let Some((x, y)) = newsize {
-//!     let (x, y) = substract_borders(x, y);
+//!     let (x, y) = subtract_borders(x, y);
 //!     window.resize(x, y);
 //! }
 //! ```
@@ -74,14 +74,17 @@
 //!   window to its current size (update the buffer to the compositor), as the compositer
 //!   might have resized your window without telling you.
 //! - The size hint provided by the compositor counts the borders size, to get the real
-//!   size hint for your interior surface, use the function `substract_borders(..)` provided
+//!   size hint for your interior surface, use the function `subtract_borders(..)` provided
 //!   by this library.
 
 extern crate byteorder;
 extern crate tempfile;
 extern crate wayland_client;
+extern crate wayland_protocols;
 
 mod decorated_surface;
 mod themed_pointer;
+mod shell;
 
-pub use decorated_surface::{DecoratedSurface, substract_borders, add_borders, Handler};
+pub use decorated_surface::{DecoratedSurface, subtract_borders, add_borders, Handler};
+pub use shell::{Configure, Shell};
