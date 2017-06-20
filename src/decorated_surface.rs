@@ -378,8 +378,13 @@ impl<H: Handler> DecoratedSurface<H> {
     ///
     /// Automatically disables fullscreen mode if it was set.
     pub fn set_decorate(&mut self, decorate: bool) {
-        if let shell::Surface::Wl(ref surface) = self.shell_surface {
-            surface.set_toplevel();
+        match self.shell_surface {
+            shell::Surface::Wl(ref surface) => {
+                surface.set_toplevel();
+            },
+            shell::Surface::Xdg(ref surface) => {
+                surface.toplevel.unset_fullscreen();
+            },
         }
         self.decorate = decorate;
         // trigger redraw
