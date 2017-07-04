@@ -1,8 +1,8 @@
-use decorated_surface::{self, DecoratedSurface};
-use wayland_client::{self, EventQueueHandle};
+use decorated_surface::{self, DecoratedSurface, Handler as UserHandler};
+use wayland_client::EventQueueHandle;
 use wayland_protocols::unstable::xdg_shell;
-use wayland_protocols::unstable::xdg_shell::client::zxdg_toplevel_v6::ZxdgToplevelV6;
-use wayland_protocols::unstable::xdg_shell::client::zxdg_surface_v6::ZxdgSurfaceV6;
+use wayland_protocols::unstable::xdg_shell::client::zxdg_toplevel_v6::{self, ZxdgToplevelV6};
+use wayland_protocols::unstable::xdg_shell::client::zxdg_surface_v6::{self, ZxdgSurfaceV6};
 
 pub struct Surface {
     pub toplevel: ZxdgToplevelV6,
@@ -14,40 +14,9 @@ pub struct Surface {
 // xdg_shell `Handler` implementations //
 /////////////////////////////////////////
 
+declare_handler!(DecoratedSurface<H: [UserHandler]>, zxdg_toplevel_v6::Handler, ZxdgToplevelV6);
 
-unsafe impl<H> wayland_client::Handler<ZxdgToplevelV6> for DecoratedSurface<H>
-    where H: decorated_surface::Handler,
-{
-    unsafe fn message(
-        &mut self,
-        evq: &mut EventQueueHandle,
-        proxy: &ZxdgToplevelV6,
-        opcode: u32,
-        args: *const wayland_client::sys::wl_argument,
-    ) -> Result<(),()>
-    {
-        <DecoratedSurface<H> as xdg_shell::client::zxdg_toplevel_v6::Handler>::__message(
-            self, evq, proxy, opcode, args
-        )
-    }
-}
-
-unsafe impl<H> wayland_client::Handler<ZxdgSurfaceV6> for DecoratedSurface<H>
-    where H: decorated_surface::Handler,
-{
-    unsafe fn message(
-        &mut self,
-        evq: &mut EventQueueHandle,
-        proxy: &ZxdgSurfaceV6,
-        opcode: u32,
-        args: *const wayland_client::sys::wl_argument,
-    ) -> Result<(),()>
-    {
-        <DecoratedSurface<H> as xdg_shell::client::zxdg_surface_v6::Handler>::__message(
-            self, evq, proxy, opcode, args
-        )
-    }
-}
+declare_handler!(DecoratedSurface<H: [UserHandler]>, zxdg_surface_v6::Handler, ZxdgSurfaceV6);
 
 impl<H> xdg_shell::client::zxdg_toplevel_v6::Handler for DecoratedSurface<H>
     where H: decorated_surface::Handler,

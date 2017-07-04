@@ -79,6 +79,7 @@
 
 extern crate byteorder;
 extern crate tempfile;
+#[macro_use]
 extern crate wayland_client;
 extern crate wayland_protocols;
 
