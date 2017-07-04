@@ -7,7 +7,7 @@ use byteorder::{WriteBytesExt, NativeEndian};
 
 use tempfile::tempfile;
 
-use wayland_client::{self, Proxy, EventQueueHandle, Init};
+use wayland_client::{Proxy, EventQueueHandle, Init};
 use wayland_client::protocol::{wl_surface, wl_compositor, wl_buffer, wl_subsurface, wl_seat,
                                wl_shm, wl_pointer, wl_shell_surface, wl_subcompositor, wl_shm_pool,
                                wl_output};
@@ -510,12 +510,7 @@ impl<H: Handler> wl_pointer::Handler for DecoratedSurface<H> {
     }
 }
 
-unsafe impl<H: Handler> wayland_client::Handler<wl_pointer::WlPointer> for DecoratedSurface<H> {
-    unsafe fn message(&mut self, evq: &mut EventQueueHandle, proxy: &wl_pointer::WlPointer, opcode: u32, args: *const wayland_client::sys::wl_argument) -> Result<(),()> {
-        <DecoratedSurface<H> as wayland_client::protocol::wl_pointer::Handler>::__message(self, evq, proxy, opcode, args)
-    }
-}
-
+declare_handler!(DecoratedSurface<H: [Handler]>, wl_pointer::Handler, wl_pointer::WlPointer);
 
 /// Subtracts the border dimensions from the given dimensions.
 pub fn subtract_borders(width: i32, height: i32) -> (i32, i32) {

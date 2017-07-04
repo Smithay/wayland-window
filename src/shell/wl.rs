@@ -1,5 +1,5 @@
-use decorated_surface::{self, DecoratedSurface};
-use wayland_client::{self, EventQueueHandle};
+use decorated_surface::{self, DecoratedSurface, Handler as UserHandler};
+use wayland_client::EventQueueHandle;
 use wayland_client::protocol::wl_shell_surface;
 
 ////////////////////////////////////////
@@ -8,7 +8,7 @@ use wayland_client::protocol::wl_shell_surface;
 
 
 impl<H> wl_shell_surface::Handler for DecoratedSurface<H>
-    where H: decorated_surface::Handler,
+    where H: UserHandler,
 {
     fn ping(
         &mut self,
@@ -35,19 +35,4 @@ impl<H> wl_shell_surface::Handler for DecoratedSurface<H>
     }
 }
 
-unsafe impl<H> wayland_client::Handler<wl_shell_surface::WlShellSurface> for DecoratedSurface<H>
-    where H: decorated_surface::Handler
-{
-    unsafe fn message(
-        &mut self,
-        evq: &mut EventQueueHandle,
-        proxy: &wl_shell_surface::WlShellSurface,
-        opcode: u32,
-        args: *const wayland_client::sys::wl_argument,
-    ) -> Result<(),()>
-    {
-        <DecoratedSurface<H> as wayland_client::protocol::wl_shell_surface::Handler>::__message(
-            self, evq, proxy, opcode, args
-        )
-    }
-}
+declare_handler!(DecoratedSurface<H: [UserHandler]>, wl_shell_surface::Handler, wl_shell_surface::WlShellSurface);
