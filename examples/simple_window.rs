@@ -7,8 +7,9 @@ extern crate wayland_window;
 
 use byteorder::{WriteBytesExt, NativeEndian};
 
+use std::cmp;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Write, Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
 
 use tempfile::tempfile;
@@ -37,8 +38,8 @@ struct Window {
 
 impl wayland_window::Handler for Window {
     fn configure(&mut self, _: &mut EventQueueHandle, _conf: wayland_window::Configure, width: i32, height: i32) {
-        let w = std::cmp::max(width, 100);
-        let h = std::cmp::max(height, 100);
+        let w = cmp::max(width, 100);
+        let h = cmp::max(height, 100);
         println!("configure: {:?}", (w, h));
         self.newsize = Some((w, h))
     }
@@ -49,11 +50,20 @@ impl wayland_window::Handler for Window {
 
 impl Window {
     fn resize(&mut self, width: i32, height: i32) {
+        // write the contents to it, lets put a nice color gradient
+        self.tmp.seek(SeekFrom::Start(0)).unwrap();
+        for i in 0..(width * height) {
+            let x = (i % width) as u32;
+            let y = (i / width) as u32;
+            let w = width as u32;
+            let h = height as u32;
+            let r: u32 = cmp::min(((w - x) * 0xFF) / w, ((h - y) * 0xFF) / h);
+            let g: u32 = cmp::min((x * 0xFF) / w, ((h - y) * 0xFF) / h);
+            let b: u32 = cmp::min(((w - x) * 0xFF) / w, (y * 0xFF) / h);
+            self.tmp.write_u32::<NativeEndian>((0xFF << 24) + (r << 16) + (g << 8) + b).unwrap();
+        }
         if (width*height*4) as usize > self.pool_size {
-            // need to reallocate a bigger buffer
-            for _ in 0..((width*height) as usize - self.pool_size / 4) {
-                self.tmp.write_u32::<NativeEndian>(0xFF880000).unwrap();
-            }
+            // the buffer has grown, notify the compositor
             self.pool.resize(width*height*4);
             self.pool_size = (width*height*4) as usize;
         }
