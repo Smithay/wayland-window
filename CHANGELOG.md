@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.7.0 -- 2017-07-05
+
+Add `xdg_shell` support (thanks to @mitchmindtree)
+
 ## 0.6.1 -- 2017-01-02
 
 Migrate repo to smithay org.
