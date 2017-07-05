@@ -125,13 +125,9 @@ impl PointerState {
 
 /// A wrapper for a decorated surface.
 ///
-/// This is the main object of this crate. It wraps a user provided
-/// wayland surface into a `ShellSurface` and gives you acces to it
-/// via the `.get_shell()` method.
-///
-/// It also handles the drawing of minimalistic borders allowing the
-/// resizing and moving of the window. See the root documentation of
-/// this crate for explanations about how to use it.
+/// This is the main object of this crate. It handles the drawing of
+/// minimalistic borders allowing the resizing and moving of the window.
+/// See the root documentation of this crate for explanations about how to use it.
 pub struct DecoratedSurface<H: Handler> {
     shell_surface: shell::Surface,
     border_subsurfaces: Vec<wl_subsurface::WlSubsurface>,
