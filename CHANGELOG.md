@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.8.0 -- 2017-08-07
+
+- Improve `xdg_shell` support for configure events (breaking change of `Handler` API)
+- Add `set_min_size` and `set_max_size` methods
+
 ## 0.7.0 -- 2017-07-05
 
 Add `xdg_shell` support (thanks to @mitchmindtree)
