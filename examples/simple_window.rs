@@ -37,11 +37,12 @@ struct Window {
 }
 
 impl wayland_window::Handler for Window {
-    fn configure(&mut self, _: &mut EventQueueHandle, _conf: wayland_window::Configure, width: i32, height: i32) {
-        let w = cmp::max(width, 100);
-        let h = cmp::max(height, 100);
-        println!("configure: {:?}", (w, h));
-        self.newsize = Some((w, h))
+    fn configure(&mut self, _: &mut EventQueueHandle, conf: wayland_window::Configure, newsize: Option<(i32, i32)>) {
+        if let Some((w, h)) = newsize {
+            println!("configure newsize: {:?}", (w, h));
+            self.newsize = Some((w, h))
+        }
+        println!("configure metadata: {:?}", conf);
     }
     fn close(&mut self, _: &mut EventQueueHandle) {
         println!("close window");
@@ -164,7 +165,7 @@ fn main() {
             pool: pool,
             pool_size: 64,
             buf: buffer,
-            newsize: Some((256, 128))
+            newsize: Some((200, 150))
         };
 
         let mut decorated_surface = DecoratedSurface::new(&window.s, 16, 16,
@@ -177,6 +178,11 @@ fn main() {
         ).unwrap();
 
         *(decorated_surface.handler()) = Some(window);
+
+        decorated_surface.set_title("My example window".into());
+        decorated_surface.set_min_size(Some((100,100)));
+        decorated_surface.set_max_size(Some((250,250)));
+
         decorated_surface
     };
 

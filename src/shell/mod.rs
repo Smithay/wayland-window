@@ -15,8 +15,9 @@ pub enum Surface {
 }
 
 /// Configure data for a decorated surface handler.
+#[derive(Debug,Clone)]
 pub enum Configure {
-    Xdg,
+    Xdg(Vec<xdg_shell::client::zxdg_toplevel_v6::State>),
     Wl(wl_shell_surface::Resize),
 }
 

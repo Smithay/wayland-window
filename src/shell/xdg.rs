@@ -27,13 +27,22 @@ impl<H> xdg_shell::client::zxdg_toplevel_v6::Handler for DecoratedSurface<H>
         evqh: &mut EventQueueHandle,
         _proxy: &ZxdgToplevelV6,
         width: i32, height: i32,
-        _states: Vec<u8>,
+        states: Vec<u8>,
     ) {
-        // NOTE: Not sure if/how `_states` should be handled here.
+        let newsize = if width == 0 || height == 0 {
+            // if either w or h is zero, then we get to choose our size
+            None
+        } else {
+            Some(self.clamp_to_limits((width, height)))
+        };
         if let Some(handler) = decorated_surface::handler_mut(self) {
-            let (w, h) = decorated_surface::subtract_borders(width, height);
-            let configure = super::Configure::Xdg;
-            handler.configure(evqh, configure, w, h);
+            // state is an array of u32s representing the zxdg_toplevel_v6::State enum
+            let view: &[u32] = unsafe { ::std::slice::from_raw_parts(states.as_ptr() as *const _, states.len() / 4) };
+            let configure = super::Configure::Xdg(
+                // we ignore unknown values
+                view.iter().cloned().flat_map(zxdg_toplevel_v6::State::from_raw).collect()
+            );
+            handler.configure(evqh, configure, newsize);
         }
     }
 

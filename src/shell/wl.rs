@@ -27,10 +27,10 @@ impl<H> wl_shell_surface::Handler for DecoratedSurface<H>
         width: i32,
         height: i32,
     ) {
+        let newsize = self.clamp_to_limits((width, height));
         if let Some(handler) = decorated_surface::handler_mut(self) {
-            let (w, h) = decorated_surface::subtract_borders(width, height);
             let configure = super::Configure::Wl(edges);
-            handler.configure(evqh, configure, w, h)
+            handler.configure(evqh, configure, Some(newsize))
         }
     }
 }

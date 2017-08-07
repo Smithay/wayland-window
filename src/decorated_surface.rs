@@ -140,7 +140,9 @@ pub struct DecoratedSurface<H: Handler> {
     pointer_state: PointerState,
     seat: Option<wl_seat::WlSeat>,
     handler: Option<H>,
-    decorate: bool
+    decorate: bool,
+    min_size: Option<(i32, i32)>,
+    max_size: Option<(i32, i32)>
 }
 
 // Retrieves the handler from the `DecoratedSurface`.
@@ -328,7 +330,9 @@ impl<H: Handler> DecoratedSurface<H> {
             pointer_state: pointer_state,
             seat: seat,
             handler: None,
-            decorate: decorate
+            decorate: decorate,
+            min_size: None,
+            max_size: None
         };
 
         me.resize(width, height);
@@ -412,6 +416,61 @@ impl<H: Handler> DecoratedSurface<H> {
 
     pub fn handler(&mut self) -> &mut Option<H> {
         &mut self.handler
+    }
+
+    /// Sets the minimum possible size for this window
+    ///
+    /// Provide either a tuple `Some((width, height))` or `None` to unset the
+    /// minimum size.
+    ///
+    /// The provided size is the interior size, not counting decorations
+    pub fn set_min_size(&mut self, size: Option<(i32, i32)>) {
+        self.min_size = size;
+        if let shell::Surface::Xdg(ref mut xdg) = self.shell_surface {
+            let (w, h) = match (size, self.decorate) {
+                (Some((w, h)), true) => add_borders(w, h),
+                (Some((w, h)), false) => (w, h),
+                (None, _) => (0, 0)
+            };
+            xdg.toplevel.set_min_size(w, h);
+        }
+    }
+
+    /// Sets the maximum possible size for this window
+    ///
+    /// Provide either a tuple `Some((width, height))` or `None` to unset the
+    /// maximum size.
+    ///
+    /// The provided size is the interior size, not counting decorations
+    pub fn set_max_size(&mut self, size: Option<(i32, i32)>) {
+        self.max_size = size;
+        if let shell::Surface::Xdg(ref mut xdg) = self.shell_surface {
+            let (w, h) = match (size, self.decorate) {
+                (Some((w, h)), true) => add_borders(w, h),
+                (Some((w, h)), false) => (w, h),
+                (None, _) => (0, 0)
+            };
+            xdg.toplevel.set_max_size(w, h);
+        }
+    }
+
+    pub(crate) fn clamp_to_limits(&self, size: (i32, i32)) -> (i32, i32) {
+        use std::cmp::{min, max};
+        let (mut w, mut h) = size;
+        if self.decorate {
+            let (ww, hh) = subtract_borders(w, h);
+            w = ww;
+            h = hh;
+        }
+        if let Some((minw, minh)) = self.min_size {
+            w = max(minw, w);
+            h = max(minh, h);
+        }
+        if let Some((maxw, maxh)) = self.max_size {
+            w = min(maxw, w);
+            h = min(maxh, h);
+        }
+        (w, h)
     }
 }
 
@@ -529,15 +588,10 @@ pub fn add_borders(width: i32, height: i32) -> (i32, i32) {
 pub trait Handler {
     /// Called whenever the DecoratedSurface has been resized.
     ///
-    /// **Note:** `width` and `height` will not always be positive values. Values can be negative
-    /// if a user attempts to resize the window past the left or top borders. As a result, it is
-    /// recommended that users specify some reasonable bounds. E.g.
-    ///
-    /// ```ignore
-    /// let width = max(width, min_width);
-    /// let height = max(height, min_height);
-    /// ```
-    fn configure(&mut self, &mut EventQueueHandle, shell::Configure, width: i32, height: i32);
+    /// **Note:** if you've not set a minimum size, `width` and `height` will not always be
+    /// positive values. Values can be negative if a user attempts to resize the window past
+    /// the left or top borders.
+    fn configure(&mut self, &mut EventQueueHandle, shell::Configure, newsize: Option<(i32, i32)>);
     /// Called when the DecoratedSurface is closed.
     fn close(&mut self, &mut EventQueueHandle);
 }
