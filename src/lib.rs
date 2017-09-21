@@ -15,7 +15,10 @@
 //! let shell = Shell::Wl(my_wl_shell);
 //! // if using the new not-yet-stable xdg_shell
 //! let shell = Shell::Xdg(my_xdh_shell);
-//! let decorated = DecoratedSurface::new(&my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat));
+//! let decorated_surface = DecoratedSurface::new(
+//!        &mut event_queue, my_implementation, my_implementation_data,
+//!        &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat)
+//! ).unwrap(); // creation can fail
 //! ```
 //!
 //! As you can see, you need to pass several references to global objects as well as a `WlSeat`.
@@ -24,21 +27,6 @@
 //! seat you passed as argument. (So if you are on a setup with more than one pointer,
 //! only the one associated with this seat will be able to resize the window).
 //!
-//! ## Processing the events
-//!
-//! In order to process the events, you need to provide a sub-handler to this DecoratedSurface, which itself
-//! must be inserted in your event loop.
-//!
-//! This sub-handler needs to implement the `Handler` trait provided by this crate and will receive the events
-//! that cannot be automatically handled for you. See the documentation of this trait for the detail of these
-//! events.
-//!
-//! ```ignore
-//! // setup the subhandler
-//! *(decorated_surface.handler()) = Some(My_sub_handler);
-//! // insert it in the event queue
-//! let decorated_surface_id = event_queue.add_handler_with_init(decorated_surface);
-//! ```
 //!
 //! ## Configure events
 //!
@@ -53,21 +41,51 @@
 //! process the last one, and if you try to handle them all your aplication will be very
 //! laggy.
 //!
-//! The proper way is to accumulate them in your subhandler, overwriting the the previous one each time,
-//! and manually checking if one has been received in the main loop of your program. For example like this
+//! The proper way is to accumulate them in your subhandler, overwriting the the previous one
+//! each time, and manually checking if one has been received in the main loop of your program.
+//! For example like this
 //!
-//! ```ignore
-//! // define the sub-handler to accumulate sizes
-//! struct MySubHandler {
+//! ```no_run
+//! # extern crate wayland_client;
+//! # extern crate wayland_window;
+//! use wayland_window::{DecoratedSurface, init_decorated_surface,
+//!                      DecoratedSurfaceImplementation};
+//!
+//! // define a state to accumulate sizes
+//! struct ConfigureState {
 //!     new_size: Option<(i32,i32)>
 //! }
 //!
-//! impl wayland_window::Handler for Window {
-//!     fn configure(&mut self, _: &mut EventQueueHandle, _conf: wayland_window::Configure, width: i32, height: i32) {
-//!         self.newsize = Some((width, height))
-//!     }
-//!     // ...
-//! }
+//! # fn main() {
+//! # let (display, mut event_queue) = wayland_client::default_connect().unwrap();
+//! // insert it in your event queue state
+//! let configure_token = event_queue.state().insert(ConfigureState { new_size: None });
+//!
+//! // use it in your implementation:
+//! let my_implementation = DecoratedSurfaceImplementation {
+//!     configure: |evqh, token, _, newsize| {
+//!         let configure_state: &mut ConfigureState = evqh.state().get_mut(token);
+//!         configure_state.new_size = newsize;
+//!     },
+//!     close: |_, _| { /* ... */ }
+//! };
+//!
+//! # let (my_surface,width,height,compositor,subcompositor,shm,shell,seat) = unimplemented!();
+//! // create the decorated surface:
+//! let decorated_surface = DecoratedSurface::new(
+//!        &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat), true
+//! ).unwrap();
+//!
+//! // store in it the state
+//! let decorated_token = event_queue.state().insert(decorated_surface);
+//!
+//! // now, intialize it
+//! init_decorated_surface(
+//!     &mut event_queue,          // the event queue
+//!     my_implementation,         // our implementation
+//!     configure_token.clone(),   // the implementation data
+//!     decorated_token.clone()    // token to the decorated surface
+//! );
 //!
 //! // then, while running your event loop
 //! loop {
@@ -76,12 +94,14 @@
 //!
 //!     // check if a resize is needed
 //!     let mut state = event_queue.state();
-//!     let mut decorated_surface = state.get_mut_handler::<DecoratedSurface<MySubHandler>>(decorated_surface_id);
-//!     if let Some((w, h)) = decorated_surface.handler().as_mut().unwrap().newsize.take() {
+//!     let mut configure_state = state.get_mut(&configure_token);
+//!     if let Some((w, h)) = configure_state.new_size.take() {
 //!         // The compositor suggests we take a new size of (w, h)
 //!         // Handle it as needed (see next section)
 //!     }
 //! }
+//!
+//! # }
 //! ```
 //!
 //! ## Resizing the surface
@@ -104,14 +124,13 @@
 //! - In case you chose to ignore the resize, it can be appropiate to still resize your
 //!   window to its current size (update the buffer to the compositor), as the compositer
 //!   might have resized your window without telling you.
-//! - The size hint provided to your sub-handler is a size hint for the interior of the
+//! - The size hint provided to your implementation is a size hint for the interior of the
 //!   window: the dimensions of the border has been subtracted from the hint the compositor
 //!   gave. If you need to compute dimensions taking into account the sizes of the borders,
 //!   you can use the `add_borders` and `subtract_borders` functions.
 
 extern crate byteorder;
 extern crate tempfile;
-#[macro_use]
 extern crate wayland_client;
 extern crate wayland_protocols;
 
@@ -119,5 +138,6 @@ mod decorated_surface;
 mod themed_pointer;
 mod shell;
 
-pub use decorated_surface::{DecoratedSurface, subtract_borders, add_borders, Handler};
+pub use decorated_surface::{add_borders, init_decorated_surface, subtract_borders,
+                            DecoratedSurface, DecoratedSurfaceImplementation};
 pub use shell::{Configure, Shell};
