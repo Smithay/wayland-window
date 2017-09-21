@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.9.0 -- 2017-09-21
+
+- Update to wayland-client-0.10 new API
+
 ## 0.8.0 -- 2017-08-07
 
 - Improve `xdg_shell` support for configure events (breaking change of `Handler` API)
