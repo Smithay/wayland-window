@@ -1,38 +1,23 @@
-use decorated_surface::{self, DecoratedSurface, Handler as UserHandler};
-use wayland_client::EventQueueHandle;
 use wayland_client::protocol::wl_shell_surface;
 
-////////////////////////////////////////
-// wl_shell `Handler` implementations //
-////////////////////////////////////////
+use decorated_surface::DecoratedSurfaceIData;
 
-
-impl<H> wl_shell_surface::Handler for DecoratedSurface<H>
-    where H: UserHandler,
-{
-    fn ping(
-        &mut self,
-        _: &mut EventQueueHandle,
-        me: &wl_shell_surface::WlShellSurface,
-        serial: u32,
-    ) {
-        me.pong(serial);
-    }
-
-    fn configure(
-        &mut self,
-        evqh: &mut EventQueueHandle,
-        _: &wl_shell_surface::WlShellSurface,
-        edges: wl_shell_surface::Resize,
-        width: i32,
-        height: i32,
-    ) {
-        let newsize = self.clamp_to_limits((width, height));
-        if let Some(handler) = decorated_surface::handler_mut(self) {
+pub(crate) fn wl_shell_surface_implementation<ID>(
+) -> wl_shell_surface::Implementation<DecoratedSurfaceIData<ID>> {
+    wl_shell_surface::Implementation {
+        ping: |_, _, shell_surface, serial| {
+            shell_surface.pong(serial);
+        },
+        configure: |evqh, idata, _, edges, width, height| {
+            let newsize = evqh.state()
+                .get(&idata.token)
+                .clamp_to_limits((width, height));
             let configure = super::Configure::Wl(edges);
-            handler.configure(evqh, configure, Some(newsize))
-        }
+            let mut user_idata = idata.idata.borrow_mut();
+            (idata.implementation.configure)(evqh, &mut *user_idata, configure, Some(newsize))
+        },
+        popup_done: |_, _, _| {
+            // We are not doing popups
+        },
     }
 }
-
-declare_handler!(DecoratedSurface<H: [UserHandler]>, wl_shell_surface::Handler, wl_shell_surface::WlShellSurface);
