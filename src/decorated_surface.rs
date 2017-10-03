@@ -1,20 +1,16 @@
-use std::cmp::max;
+use super::themed_pointer::ThemedPointer;
+use byteorder::{NativeEndian, WriteBytesExt};
+use shell::{self, Shell};
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::cmp::max;
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
-
-use byteorder::{NativeEndian, WriteBytesExt};
-
+use std::rc::Rc;
 use tempfile::tempfile;
-
 use wayland_client::{EventQueueHandle, Proxy, StateToken};
-use wayland_client::protocol::{wl_buffer, wl_compositor, wl_output, wl_pointer, wl_seat,
-                               wl_shell_surface, wl_shm, wl_shm_pool, wl_subcompositor,
-                               wl_subsurface, wl_surface};
-use super::themed_pointer::ThemedPointer;
-use shell::{self, Shell};
+use wayland_client::protocol::{wl_buffer, wl_compositor, wl_output, wl_pointer, wl_seat, wl_shell_surface,
+                               wl_shm, wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface};
 
 // The surfaces handling the borders, 8 total, are organised this way:
 //
@@ -88,8 +84,7 @@ impl PointerState {
             && (self.coordinates.0 <= DECORATION_SIZE as f64
                 || self.coordinates.0 >= (self.surface_width + DECORATION_SIZE) as f64);
         let old_topped = self.topped;
-        self.topped =
-            self.location == PtrLocation::Top && self.coordinates.1 <= DECORATION_SIZE as f64;
+        self.topped = self.location == PtrLocation::Top && self.coordinates.1 <= DECORATION_SIZE as f64;
         if force || (self.cornered ^ old_cornered) || (old_topped ^ self.topped) {
             let name = if self.cornered {
                 match self.location {
@@ -263,17 +258,11 @@ impl DecoratedSurface {
     }
 
     /// Create a new DecoratedSurface
-    pub fn new(
-        surface: &wl_surface::WlSurface,
-        width: i32,
-        height: i32,
-        compositor: &wl_compositor::WlCompositor,
-        subcompositor: &wl_subcompositor::WlSubcompositor,
-        shm: &wl_shm::WlShm,
-        shell: &Shell,
-        seat: Option<wl_seat::WlSeat>,
-        decorate: bool,
-    ) -> Result<DecoratedSurface, ()> {
+    pub fn new(surface: &wl_surface::WlSurface, width: i32, height: i32,
+               compositor: &wl_compositor::WlCompositor,
+               subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm, shell: &Shell,
+               seat: Option<wl_seat::WlSeat>, decorate: bool)
+               -> Result<DecoratedSurface, ()> {
         // handle Shm
         let pxcount = max(
             DECORATION_TOP_SIZE * DECORATION_SIZE,
@@ -499,12 +488,9 @@ impl<ID> Clone for DecoratedSurfaceIData<ID> {
     }
 }
 
-pub fn init_decorated_surface<ID: 'static>(
-    evqh: &mut EventQueueHandle,
-    implementation: DecoratedSurfaceImplementation<ID>,
-    idata: ID,
-    token: StateToken<DecoratedSurface>,
-) {
+pub fn init_decorated_surface<ID: 'static>(evqh: &mut EventQueueHandle,
+                                           implementation: DecoratedSurfaceImplementation<ID>, idata: ID,
+                                           token: StateToken<DecoratedSurface>) {
     // retrieve the proxies
     let shell_surface = evqh.state().get(&token).shell_surface.clone().unwrap();
     let pointer = match evqh.state().get(&token).pointer_state.pointer {
@@ -582,12 +568,8 @@ fn pointer_implementation<ID>() -> wl_pointer::Implementation<DecoratedSurfaceID
     }
 }
 
-fn compute_pointer_action(
-    location: PtrLocation,
-    x: f64,
-    y: f64,
-    w: f64,
-) -> Option<(wl_shell_surface::Resize, bool)> {
+fn compute_pointer_action(location: PtrLocation, x: f64, y: f64, w: f64)
+                          -> Option<(wl_shell_surface::Resize, bool)> {
     match location {
         PtrLocation::Top => if y < DECORATION_SIZE as f64 {
             if x < DECORATION_SIZE as f64 {
@@ -642,12 +624,8 @@ pub struct DecoratedSurfaceImplementation<ID> {
     /// **Note:** if you've not set a minimum size, `width` and `height` will not always be
     /// positive values. Values can be negative if a user attempts to resize the window past
     /// the left or top borders.
-    pub configure: fn(
-        evqh: &mut EventQueueHandle,
-        idata: &mut ID,
-        cfg: shell::Configure,
-        newsize: Option<(i32, i32)>,
-    ),
+    pub configure:
+        fn(evqh: &mut EventQueueHandle, idata: &mut ID, cfg: shell::Configure, newsize: Option<(i32, i32)>),
     /// Called when the DecoratedSurface is closed.
     pub close: fn(evqh: &mut EventQueueHandle, idata: &mut ID),
 }

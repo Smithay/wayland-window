@@ -138,6 +138,6 @@ mod decorated_surface;
 mod themed_pointer;
 mod shell;
 
-pub use decorated_surface::{add_borders, init_decorated_surface, subtract_borders,
-                            DecoratedSurface, DecoratedSurfaceImplementation};
+pub use decorated_surface::{add_borders, init_decorated_surface, subtract_borders, DecoratedSurface,
+                            DecoratedSurfaceImplementation};
 pub use shell::{Configure, Shell};

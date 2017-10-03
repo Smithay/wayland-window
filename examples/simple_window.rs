@@ -6,19 +6,15 @@ extern crate wayland_protocols;
 extern crate wayland_window;
 
 use byteorder::{NativeEndian, WriteBytesExt};
-
 use std::cmp;
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
-
 use tempfile::tempfile;
-
 use wayland_client::{EnvHandler, Proxy, StateToken};
-use wayland_client::protocol::{wl_buffer, wl_compositor, wl_shell, wl_shm, wl_shm_pool,
-                               wl_subcompositor, wl_surface};
+use wayland_client::protocol::{wl_buffer, wl_compositor, wl_shell, wl_shm, wl_shm_pool, wl_subcompositor,
+                               wl_surface};
 use wayland_protocols::unstable::xdg_shell::client::zxdg_shell_v6::{self, ZxdgShellV6};
-
 use wayland_window::{init_decorated_surface, DecoratedSurface};
 
 wayland_env!(

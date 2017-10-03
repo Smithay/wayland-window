@@ -1,6 +1,5 @@
 use std::cell::Cell;
 use std::ops::Deref;
-
 use wayland_client::Proxy;
 use wayland_client::cursor::{is_available, load_theme, CursorTheme};
 use wayland_client::protocol::{wl_compositor, wl_pointer, wl_shm, wl_surface};
@@ -13,12 +12,9 @@ pub struct ThemedPointer {
 }
 
 impl ThemedPointer {
-    pub fn load(
-        pointer: wl_pointer::WlPointer,
-        name: Option<&str>,
-        compositor: &wl_compositor::WlCompositor,
-        shm: &wl_shm::WlShm,
-    ) -> Result<ThemedPointer, wl_pointer::WlPointer> {
+    pub fn load(pointer: wl_pointer::WlPointer, name: Option<&str>,
+                compositor: &wl_compositor::WlCompositor, shm: &wl_shm::WlShm)
+                -> Result<ThemedPointer, wl_pointer::WlPointer> {
         if !is_available() {
             return Err(pointer);
         }

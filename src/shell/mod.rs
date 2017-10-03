@@ -1,8 +1,7 @@
-use wayland_client::protocol::{wl_shell, wl_shell_surface, wl_surface};
-use wayland_client::{EventQueueHandle, Proxy};
-use wayland_protocols::unstable::xdg_shell;
-
 use decorated_surface::DecoratedSurfaceIData;
+use wayland_client::{EventQueueHandle, Proxy};
+use wayland_client::protocol::{wl_shell, wl_shell_surface, wl_surface};
+use wayland_protocols::unstable::xdg_shell;
 
 mod xdg;
 mod wl;
@@ -58,11 +57,8 @@ impl Surface {
         }
     }
 
-    pub(crate) fn register_to<ID: 'static>(
-        &self,
-        evqh: &mut EventQueueHandle,
-        idata: DecoratedSurfaceIData<ID>,
-    ) {
+    pub(crate) fn register_to<ID: 'static>(&self, evqh: &mut EventQueueHandle,
+                                           idata: DecoratedSurfaceIData<ID>) {
         match *self {
             Surface::Xdg(ref xdg) => {
                 evqh.register(

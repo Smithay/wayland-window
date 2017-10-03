@@ -1,9 +1,10 @@
+use decorated_surface::DecoratedSurfaceIData;
 use wayland_client::protocol::wl_shell_surface;
 
-use decorated_surface::DecoratedSurfaceIData;
-
 pub(crate) fn wl_shell_surface_implementation<ID>(
-) -> wl_shell_surface::Implementation<DecoratedSurfaceIData<ID>> {
+    )
+    -> wl_shell_surface::Implementation<DecoratedSurfaceIData<ID>>
+{
     wl_shell_surface::Implementation {
         ping: |_, _, shell_surface, serial| {
             shell_surface.pong(serial);
