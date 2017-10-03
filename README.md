@@ -11,3 +11,6 @@ releases.
 ## Usage
 Instructions of use are on the main page of the documentation,
 readable [on docs.rs](http://docs.rs/wayland-window/).
+
+Docs for the master branch are also available online:
+https://smithay.github.io/wayland-window

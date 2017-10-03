@@ -8,6 +8,27 @@ rust:
 os:
   - linux
 
+script:
+  - |
+      if [ $TRAVIS_RUST_VERSION = "nightly" ]; then
+        cargo fmt --all -- --write-mode=diff
+      fi
+  - cargo build --all --all-features
+  - cargo test
+  - cargo doc --all --no-deps --all-features
+
+after_success:
+  - cp ./doc_index.html ./target/doc/index.html
+
+deploy:
+  provider: pages
+  skip_cleanup: true
+  github_token: $GITHUB_TOKEN
+  local_dir: "${TRAVIS_BUILD_DIR}/target/doc"
+  on:
+    branch: master
+    rust: stable
+
 notifications:
     webhooks:
         urls:
