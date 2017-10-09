@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.10.0 -- 2017-10-09
+
+- Update to wayland-client-0.11
+
 ## 0.9.0 -- 2017-09-21
 
 - Update to wayland-client-0.10 new API

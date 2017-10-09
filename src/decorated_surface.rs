@@ -570,33 +570,34 @@ fn pointer_implementation<ID>() -> wl_pointer::Implementation<DecoratedSurfaceID
 
 fn compute_pointer_action(location: PtrLocation, x: f64, y: f64, w: f64)
                           -> Option<(wl_shell_surface::Resize, bool)> {
+    use self::wl_shell_surface::Resize;
     match location {
         PtrLocation::Top => if y < DECORATION_SIZE as f64 {
             if x < DECORATION_SIZE as f64 {
-                Some((wl_shell_surface::TopLeft, true))
+                Some((Resize::TopLeft, true))
             } else if x > w as f64 + DECORATION_SIZE as f64 {
-                Some((wl_shell_surface::TopRight, true))
+                Some((Resize::TopRight, true))
             } else {
-                Some((wl_shell_surface::Top, true))
+                Some((Resize::Top, true))
             }
         } else {
             if x < DECORATION_SIZE as f64 {
-                Some((wl_shell_surface::Left, true))
+                Some((Resize::Left, true))
             } else if x > w as f64 + DECORATION_SIZE as f64 {
-                Some((wl_shell_surface::Right, true))
+                Some((Resize::Right, true))
             } else {
-                Some((wl_shell_surface::None, false))
+                Some((Resize::None, false))
             }
         },
         PtrLocation::Bottom => if x < DECORATION_SIZE as f64 {
-            Some((wl_shell_surface::BottomLeft, true))
+            Some((Resize::BottomLeft, true))
         } else if x > w as f64 + DECORATION_SIZE as f64 {
-            Some((wl_shell_surface::BottomRight, true))
+            Some((Resize::BottomRight, true))
         } else {
-            Some((wl_shell_surface::Bottom, true))
+            Some((Resize::Bottom, true))
         },
-        PtrLocation::Left => Some((wl_shell_surface::Left, true)),
-        PtrLocation::Right => Some((wl_shell_surface::Right, true)),
+        PtrLocation::Left => Some((Resize::Left, true)),
+        PtrLocation::Right => Some((Resize::Right, true)),
         PtrLocation::None => None,
     }
 }
