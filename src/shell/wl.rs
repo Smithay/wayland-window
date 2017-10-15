@@ -10,8 +10,7 @@ pub(crate) fn wl_shell_surface_implementation<ID>(
             shell_surface.pong(serial);
         },
         configure: |evqh, idata, _, edges, width, height| {
-            let newsize = evqh.state()
-                .get(&idata.token)
+            let newsize = idata.pointer_state.borrow()
                 .clamp_to_limits((width, height));
             let configure = super::Configure::Wl(edges);
             let mut user_idata = idata.idata.borrow_mut();

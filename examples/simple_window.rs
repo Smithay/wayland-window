@@ -15,7 +15,7 @@ use wayland_client::{EnvHandler, Proxy, StateToken};
 use wayland_client::protocol::{wl_buffer, wl_compositor, wl_shell, wl_shm, wl_shm_pool, wl_subcompositor,
                                wl_surface};
 use wayland_protocols::unstable::xdg_shell::client::zxdg_shell_v6::{self, ZxdgShellV6};
-use wayland_window::{init_decorated_surface, DecoratedSurface};
+use wayland_window::init_decorated_surface;
 
 wayland_env!(
     WaylandEnv,
@@ -148,63 +148,54 @@ fn main() {
         _ => panic!("No available shell"),
     };
 
-    // prepare the decorated surface
-    let (decorated_surface, window) = {
-        // introduce a new scope because .state() borrows the event_queue
-        let state = event_queue.state();
-        // retrieve the EnvHandler
-        let env = state.get(&env_token);
-        let wl_surface = env.compositor.create_surface();
+    // get the env
+    let env = event_queue.state().get(&env_token).clone_inner().unwrap();
 
-        // find the seat if any
-        let mut seat = None;
+    // prepare the Window
+    let wl_surface = env.compositor.create_surface();
+    let window_token = event_queue.state().insert(Window::new(wl_surface.clone().unwrap(), &env.shm));
+
+    // find the seat if any
+    let seat = event_queue.state().with_value(&env_token, |_, env| {
         for &(id, ref interface, _) in env.globals() {
             if interface == "wl_seat" {
-                seat = Some(registry.bind(1, id));
-                break;
+                return Some(registry.bind(1, id));
             }
         }
+        None
+    });
 
-        let mut decorated_surface = DecoratedSurface::new(
-            &wl_surface,
-            16,
-            16,
-            &env.compositor,
-            &env.subcompositor,
-            &env.shm,
-            &shell,
-            seat,
-            true,
-        ).unwrap();
-
-        let window = Window::new(wl_surface, &env.shm);
-
-        decorated_surface.set_title("My example window".into());
-        decorated_surface.set_min_size(Some((100, 100)));
-        decorated_surface.set_max_size(Some((250, 250)));
-
-        (decorated_surface, window)
-    };
-
-    let decorated_surface_token = event_queue.state().insert(decorated_surface);
-    let window_token = event_queue.state().insert(window);
-
-    init_decorated_surface(
+    let mut decorated_surface = init_decorated_surface(
         &mut event_queue,
         window_implementation(),
         window_token.clone(),
-        decorated_surface_token.clone(),
-    );
+        &wl_surface,
+        16,
+        16,
+        &env.compositor,
+        &env.subcompositor,
+        &env.shm,
+        &shell,
+        seat,
+        true,
+    ).unwrap();
+
+    decorated_surface.set_title("My example window".into());
+    decorated_surface.set_min_size(Some((100, 100)));
+    decorated_surface.set_max_size(Some((250, 250)));
+
+    wl_surface.commit();
 
     loop {
         display.flush().unwrap();
         event_queue.dispatch().unwrap();
 
         // resize if needed
-        let mut state = event_queue.state();
-        if let Some((w, h)) = state.get_mut(&window_token).newsize.take() {
-            state.get_mut(&decorated_surface_token).resize(w, h);
-            state.get_mut(&window_token).resize(w, h);
-        }
+        event_queue.state().with_value(&window_token, |_, window| {
+            if let Some((w, h)) = window.newsize.take() {
+                decorated_surface.resize(w, h);
+                window.resize(w, h);
+            }
+        });
     }
 }

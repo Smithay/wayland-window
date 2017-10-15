@@ -31,8 +31,7 @@ pub(crate) fn xdg_toplevel_implementation<ID>(
                 None
             } else {
                 Some(
-                    evqh.state()
-                        .get(&idata.token)
+                    idata.pointer_state.borrow()
                         .clamp_to_limits((width, height)),
                 )
             };
