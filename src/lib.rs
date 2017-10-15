@@ -6,16 +6,15 @@
 //!
 //! ## Creating a decorated shell surface
 //!
-//! Creating a decorated window is as simple as wrapping it in a
-//! `DecoratedSurface`:
+//! Creating a decorated window is simply done using the provided init function:
 //!
 //! ```ignore
-//! use wayland_window::{DecoratedSurface, Shell};
+//! use wayland_window::{init_decorated_surface};
 //! // if using the legacy wl_shell global
 //! let shell = Shell::Wl(my_wl_shell);
 //! // if using the new not-yet-stable xdg_shell
 //! let shell = Shell::Xdg(my_xdh_shell);
-//! let decorated_surface = DecoratedSurface::new(
+//! let decorated_surface = init_decorated_surface(
 //!        &mut event_queue, my_implementation, my_implementation_data,
 //!        &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat)
 //! ).unwrap(); // creation can fail
@@ -27,6 +26,8 @@
 //! seat you passed as argument. (So if you are on a setup with more than one pointer,
 //! only the one associated with this seat will be able to resize the window).
 //!
+//! See next section for example use of the `my_implementation` and
+//! `my_implementation_data` arguments.
 //!
 //! ## Configure events
 //!
@@ -72,20 +73,12 @@
 //!
 //! # let (my_surface,width,height,compositor,subcompositor,shm,shell,seat) = unimplemented!();
 //! // create the decorated surface:
-//! let decorated_surface = DecoratedSurface::new(
-//!        &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat), true
-//! ).unwrap();
-//!
-//! // store in it the state
-//! let decorated_token = event_queue.state().insert(decorated_surface);
-//!
-//! // now, intialize it
-//! init_decorated_surface(
+//! let decorated_surface = init_decorated_surface(
 //!     &mut event_queue,          // the event queue
 //!     my_implementation,         // our implementation
 //!     configure_token.clone(),   // the implementation data
-//!     decorated_token.clone()    // token to the decorated surface
-//! );
+//!     &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat), true
+//! ).unwrap();
 //!
 //! // then, while running your event loop
 //! loop {
@@ -93,8 +86,7 @@
 //!     event_queue.dispatch().unwrap();
 //!
 //!     // check if a resize is needed
-//!     let mut state = event_queue.state();
-//!     let mut configure_state = state.get_mut(&configure_token);
+//!     let mut configure_state = event_queue.state().get_mut(&configure_token);
 //!     if let Some((w, h)) = configure_state.new_size.take() {
 //!         // The compositor suggests we take a new size of (w, h)
 //!         // Handle it as needed (see next section)

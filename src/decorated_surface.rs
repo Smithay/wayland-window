@@ -7,8 +7,9 @@ use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use tempfile::tempfile;
-use wayland_client::{EventQueueHandle, Proxy, StateToken};
+use wayland_client::{EventQueueHandle, Proxy};
 use wayland_client::protocol::{wl_buffer, wl_compositor, wl_output, wl_pointer, wl_seat, wl_shell_surface,
                                wl_shm, wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface};
 
@@ -45,14 +46,24 @@ enum Pointer {
     None,
 }
 
-struct PointerState {
+#[derive(Copy, Clone)]
+pub(crate) struct SurfaceMetadata {
+    dimensions: (i32, i32),
+    decorate: bool,
+    min_size: Option<(i32, i32)>,
+    max_size: Option<(i32, i32)>,
+}
+
+pub(crate) struct PointerState {
     surfaces: Vec<wl_surface::WlSurface>,
     location: PtrLocation,
     coordinates: (f64, f64),
     cornered: bool,
     topped: bool,
-    surface_width: i32,
     pointer: Pointer,
+    shell_surface: shell::Surface,
+    seat: Option<wl_seat::WlSeat>,
+    meta: Arc<Mutex<SurfaceMetadata>>,
 }
 
 impl PointerState {
@@ -80,9 +91,10 @@ impl PointerState {
 
     fn update(&mut self, serial: Option<u32>, force: bool) {
         let old_cornered = self.cornered;
+        let surface_width = self.meta.lock().unwrap().dimensions.0;
         self.cornered = (self.location == PtrLocation::Top || self.location == PtrLocation::Bottom)
             && (self.coordinates.0 <= DECORATION_SIZE as f64
-                || self.coordinates.0 >= (self.surface_width + DECORATION_SIZE) as f64);
+                || self.coordinates.0 >= (surface_width + DECORATION_SIZE) as f64);
         let old_topped = self.topped;
         self.topped = self.location == PtrLocation::Top && self.coordinates.1 <= DECORATION_SIZE as f64;
         if force || (self.cornered ^ old_cornered) || (old_topped ^ self.topped) {
@@ -122,6 +134,26 @@ impl PointerState {
             themed.set_cursor(name, serial);
         }
     }
+
+    pub(crate) fn clamp_to_limits(&self, size: (i32, i32)) -> (i32, i32) {
+        use std::cmp::{max, min};
+        let (mut w, mut h) = size;
+        let meta = self.meta.lock().unwrap().clone();
+        if meta.decorate {
+            let (ww, hh) = subtract_borders(w, h);
+            w = ww;
+            h = hh;
+        }
+        if let Some((minw, minh)) = meta.min_size {
+            w = max(minw, w);
+            h = max(minh, h);
+        }
+        if let Some((maxw, maxh)) = meta.max_size {
+            w = min(maxw, w);
+            h = min(maxh, h);
+        }
+        (w, h)
+    }
 }
 
 
@@ -133,17 +165,12 @@ impl PointerState {
 pub struct DecoratedSurface {
     shell_surface: shell::Surface,
     border_subsurfaces: Vec<wl_subsurface::WlSubsurface>,
+    border_surfaces: Vec<wl_surface::WlSurface>,
     buffers: Vec<wl_buffer::WlBuffer>,
     tempfile: File,
     pool: wl_shm_pool::WlShmPool,
-    height: i32,
-    width: i32,
+    meta: Arc<Mutex<SurfaceMetadata>>,
     buffer_capacity: usize,
-    pointer_state: PointerState,
-    seat: Option<wl_seat::WlSeat>,
-    decorate: bool,
-    min_size: Option<(i32, i32)>,
-    max_size: Option<(i32, i32)>,
 }
 
 impl DecoratedSurface {
@@ -157,12 +184,11 @@ impl DecoratedSurface {
             b.destroy();
         }
 
-        self.width = width;
-        self.height = height;
+        self.meta.lock().unwrap().dimensions = (width, height);
 
         // skip if not decorating
-        if !self.decorate {
-            for s in &self.pointer_state.surfaces {
+        if !self.meta.lock().unwrap().decorate {
+            for s in &self.border_surfaces {
                 s.attach(None, 0, 0);
                 s.commit();
             }
@@ -180,7 +206,6 @@ impl DecoratedSurface {
             self.pool.resize((new_pxcount * 4) as i32);
             self.buffer_capacity = new_pxcount * 4;
         }
-        self.pointer_state.surface_width = width;
         // rewrite the data
         self.tempfile.seek(SeekFrom::Start(0)).unwrap();
         for _ in 0..(new_pxcount * 4) {
@@ -194,13 +219,13 @@ impl DecoratedSurface {
             let buffer = self.pool
                 .create_buffer(
                     0,
-                    self.width as i32 + (DECORATION_SIZE as i32) * 2,
+                    width as i32 + (DECORATION_SIZE as i32) * 2,
                     DECORATION_TOP_SIZE as i32,
-                    (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
+                    (width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
                     wl_shm::Format::Argb8888,
                 )
                 .expect("Pool was destroyed!");
-            self.pointer_state.surfaces[BORDER_TOP].attach(Some(&buffer), 0, 0);
+            self.border_surfaces[BORDER_TOP].attach(Some(&buffer), 0, 0);
             self.border_subsurfaces[BORDER_TOP]
                 .set_position(-(DECORATION_SIZE as i32), -(DECORATION_TOP_SIZE as i32));
             self.buffers.push(buffer);
@@ -211,13 +236,13 @@ impl DecoratedSurface {
                 .create_buffer(
                     0,
                     DECORATION_SIZE as i32,
-                    self.height as i32,
+                    height as i32,
                     (DECORATION_SIZE * 4) as i32,
                     wl_shm::Format::Argb8888,
                 )
                 .expect("Pool was destroyed!");
-            self.pointer_state.surfaces[BORDER_RIGHT].attach(Some(&buffer), 0, 0);
-            self.border_subsurfaces[BORDER_RIGHT].set_position(self.width as i32, 0);
+            self.border_surfaces[BORDER_RIGHT].attach(Some(&buffer), 0, 0);
+            self.border_subsurfaces[BORDER_RIGHT].set_position(width as i32, 0);
             self.buffers.push(buffer);
         }
         // bottom
@@ -225,15 +250,15 @@ impl DecoratedSurface {
             let buffer = self.pool
                 .create_buffer(
                     0,
-                    self.width as i32 + (DECORATION_SIZE as i32) * 2,
+                    width as i32 + (DECORATION_SIZE as i32) * 2,
                     DECORATION_SIZE as i32,
-                    (self.width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
+                    (width as i32 + (DECORATION_SIZE as i32) * 2) * 4,
                     wl_shm::Format::Argb8888,
                 )
                 .expect("Pool was destroyed!");
-            self.pointer_state.surfaces[BORDER_BOTTOM].attach(Some(&buffer), 0, 0);
+            self.border_surfaces[BORDER_BOTTOM].attach(Some(&buffer), 0, 0);
             self.border_subsurfaces[BORDER_BOTTOM]
-                .set_position(-(DECORATION_SIZE as i32), self.height as i32);
+                .set_position(-(DECORATION_SIZE as i32), height as i32);
             self.buffers.push(buffer);
         }
         // left
@@ -242,104 +267,19 @@ impl DecoratedSurface {
                 .create_buffer(
                     0,
                     DECORATION_SIZE as i32,
-                    self.height as i32,
+                    height as i32,
                     (DECORATION_SIZE * 4) as i32,
                     wl_shm::Format::Argb8888,
                 )
                 .expect("Pool was destroyed!");
-            self.pointer_state.surfaces[BORDER_LEFT].attach(Some(&buffer), 0, 0);
+            self.border_surfaces[BORDER_LEFT].attach(Some(&buffer), 0, 0);
             self.border_subsurfaces[BORDER_LEFT].set_position(-(DECORATION_SIZE as i32), 0);
             self.buffers.push(buffer);
         }
 
-        for s in &self.pointer_state.surfaces {
+        for s in &self.border_surfaces {
             s.commit();
         }
-    }
-
-    /// Create a new DecoratedSurface
-    pub fn new(surface: &wl_surface::WlSurface, width: i32, height: i32,
-               compositor: &wl_compositor::WlCompositor,
-               subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm, shell: &Shell,
-               seat: Option<wl_seat::WlSeat>, decorate: bool)
-               -> Result<DecoratedSurface, ()> {
-        // handle Shm
-        let pxcount = max(
-            DECORATION_TOP_SIZE * DECORATION_SIZE,
-            max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height),
-        ) as usize;
-
-        let tempfile = match tempfile() {
-            Ok(t) => t,
-            Err(_) => return Err(()),
-        };
-
-        match tempfile.set_len((pxcount * 4) as u64) {
-            Ok(()) => {}
-            Err(_) => return Err(()),
-        };
-
-        let pool = shm.create_pool(tempfile.as_raw_fd(), (pxcount * 4) as i32);
-
-        // create surfaces
-        let border_surfaces: Vec<_> = (0..4).map(|_| compositor.create_surface()).collect();
-        let border_subsurfaces: Vec<_> = border_surfaces
-            .iter()
-            .map(|s| {
-                subcompositor
-                    .get_subsurface(&s, surface)
-                    .expect("Subcompositor cannot be destroyed")
-            })
-            .collect();
-        for s in &border_subsurfaces {
-            s.set_desync();
-        }
-
-        let shell_surface = shell::Surface::from_shell(surface, shell);
-
-        // Pointer
-        let pointer_state = {
-            let surfaces = border_surfaces;
-            let pointer = seat.as_ref()
-                .map(|seat| seat.get_pointer().expect("Seat cannot be dead!"));
-
-            let pointer = match pointer.map(|pointer| {
-                ThemedPointer::load(pointer, None, &compositor, &shm)
-            }) {
-                Some(Ok(themed)) => Pointer::Themed(themed),
-                Some(Err(plain)) => Pointer::Plain(plain),
-                None => Pointer::None,
-            };
-            PointerState {
-                surfaces: surfaces,
-                location: PtrLocation::None,
-                coordinates: (0., 0.),
-                surface_width: width,
-                cornered: false,
-                topped: false,
-                pointer: pointer,
-            }
-        };
-
-        let mut me = DecoratedSurface {
-            shell_surface: shell_surface,
-            border_subsurfaces: border_subsurfaces,
-            buffers: Vec::new(),
-            tempfile: tempfile,
-            pool: pool,
-            height: height,
-            width: width,
-            buffer_capacity: pxcount * 4,
-            pointer_state: pointer_state,
-            seat: seat,
-            decorate: decorate,
-            min_size: None,
-            max_size: None,
-        };
-
-        me.resize(width, height);
-
-        Ok(me)
     }
 
     /// Set a short title for the surface.
@@ -388,9 +328,9 @@ impl DecoratedSurface {
                 surface.toplevel.unset_fullscreen();
             }
         }
-        self.decorate = decorate;
+        self.meta.lock().unwrap().decorate = decorate;
         // trigger redraw
-        let (w, h) = (self.width, self.height);
+        let (w, h) = self.meta.lock().unwrap().dimensions;
         self.resize(w, h);
     }
 
@@ -410,9 +350,9 @@ impl DecoratedSurface {
                 shell_surface.set_fullscreen(method, framerate, output);
             }
         }
-        self.decorate = false;
+        self.meta.lock().unwrap().decorate = false;
         // trigger redraw
-        let (w, h) = (self.width, self.height);
+        let (w, h) = self.meta.lock().unwrap().dimensions;
         self.resize(w, h);
     }
 
@@ -423,9 +363,9 @@ impl DecoratedSurface {
     ///
     /// The provided size is the interior size, not counting decorations
     pub fn set_min_size(&mut self, size: Option<(i32, i32)>) {
-        self.min_size = size;
+        self.meta.lock().unwrap().min_size = size;
         if let shell::Surface::Xdg(ref mut xdg) = self.shell_surface {
-            let (w, h) = match (size, self.decorate) {
+            let (w, h) = match (size, self.meta.lock().unwrap().decorate) {
                 (Some((w, h)), true) => add_borders(w, h),
                 (Some((w, h)), false) => (w, h),
                 (None, _) => (0, 0),
@@ -441,9 +381,9 @@ impl DecoratedSurface {
     ///
     /// The provided size is the interior size, not counting decorations
     pub fn set_max_size(&mut self, size: Option<(i32, i32)>) {
-        self.max_size = size;
+        self.meta.lock().unwrap().max_size = size;
         if let shell::Surface::Xdg(ref mut xdg) = self.shell_surface {
-            let (w, h) = match (size, self.decorate) {
+            let (w, h) = match (size, self.meta.lock().unwrap().decorate) {
                 (Some((w, h)), true) => add_borders(w, h),
                 (Some((w, h)), false) => (w, h),
                 (None, _) => (0, 0),
@@ -451,29 +391,10 @@ impl DecoratedSurface {
             xdg.toplevel.set_max_size(w, h);
         }
     }
-
-    pub(crate) fn clamp_to_limits(&self, size: (i32, i32)) -> (i32, i32) {
-        use std::cmp::{max, min};
-        let (mut w, mut h) = size;
-        if self.decorate {
-            let (ww, hh) = subtract_borders(w, h);
-            w = ww;
-            h = hh;
-        }
-        if let Some((minw, minh)) = self.min_size {
-            w = max(minw, w);
-            h = max(minh, h);
-        }
-        if let Some((maxw, maxh)) = self.max_size {
-            w = min(maxw, w);
-            h = min(maxh, h);
-        }
-        (w, h)
-    }
 }
 
 pub(crate) struct DecoratedSurfaceIData<ID> {
-    pub(crate) token: StateToken<DecoratedSurface>,
+    pub(crate) pointer_state: Rc<RefCell<PointerState>>,
     pub(crate) implementation: DecoratedSurfaceImplementation<ID>,
     pub(crate) idata: Rc<RefCell<ID>>,
 }
@@ -481,69 +402,175 @@ pub(crate) struct DecoratedSurfaceIData<ID> {
 impl<ID> Clone for DecoratedSurfaceIData<ID> {
     fn clone(&self) -> DecoratedSurfaceIData<ID> {
         DecoratedSurfaceIData {
-            token: self.token.clone(),
+            pointer_state: self.pointer_state.clone(),
             implementation: self.implementation.clone(),
             idata: self.idata.clone(),
         }
     }
 }
 
+/// Creates a new `DecoratedSurface` and inserts it in the
+/// event queue
+/// 
+/// This requires you to provide:
+/// 
+/// - a mutable reference to the event_queue
+/// - an implementation (and implementation data) for the decorated surface
+/// - a reference to the surface to decorate
+/// - the wanted dimensions for this decoration
+/// - a few wayland globals: compositor, subcompositor, shm, shell, and an optional seat
+/// - a bool specifying if decorations should be displayed or not
+/// 
+/// If you provide a seat, it will be used to process user interaction with the decorations.
 pub fn init_decorated_surface<ID: 'static>(evqh: &mut EventQueueHandle,
                                            implementation: DecoratedSurfaceImplementation<ID>, idata: ID,
-                                           token: StateToken<DecoratedSurface>) {
-    // retrieve the proxies
-    let shell_surface = evqh.state().get(&token).shell_surface.clone().unwrap();
-    let pointer = match evqh.state().get(&token).pointer_state.pointer {
+                                           surface: &wl_surface::WlSurface, width: i32, height: i32,
+            compositor: &wl_compositor::WlCompositor,
+            subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm, shell: &Shell,
+            seat: Option<wl_seat::WlSeat>, decorate: bool) -> Result<DecoratedSurface, ()> {
+    let (decorated_surface, pointer_state) = create_states(surface, width, height, compositor, subcompositor, shm, shell, seat, decorate)?;
+    let shell_surface = decorated_surface.shell_surface.clone().unwrap();
+    let pointer = match pointer_state.pointer {
         Pointer::Plain(ref pointer) => pointer.clone(),
         Pointer::Themed(ref pointer) => (*pointer).clone(),
         Pointer::None => None,
     };
 
     let idata = DecoratedSurfaceIData {
-        token: token,
+        pointer_state: Rc::new(RefCell::new(pointer_state)),
         implementation: implementation,
         idata: Rc::new(RefCell::new(idata)),
     };
-
 
     // init implementations
     if let Some(pointer) = pointer {
         evqh.register(&pointer, pointer_implementation(), idata.clone());
     }
     shell_surface.register_to(evqh, idata);
+
+    Ok(decorated_surface)
+}
+
+/// Create a new DecoratedSurface
+fn create_states(surface: &wl_surface::WlSurface, width: i32, height: i32,
+            compositor: &wl_compositor::WlCompositor,
+            subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm, shell: &Shell,
+            seat: Option<wl_seat::WlSeat>, decorate: bool)
+            -> Result<(DecoratedSurface, PointerState), ()> {
+    // handle Shm
+    let pxcount = max(
+        DECORATION_TOP_SIZE * DECORATION_SIZE,
+        max(DECORATION_TOP_SIZE * width, DECORATION_SIZE * height),
+    ) as usize;
+
+    let tempfile = match tempfile() {
+        Ok(t) => t,
+        Err(_) => return Err(()),
+    };
+
+    match tempfile.set_len((pxcount * 4) as u64) {
+        Ok(()) => {}
+        Err(_) => return Err(()),
+    };
+
+    let pool = shm.create_pool(tempfile.as_raw_fd(), (pxcount * 4) as i32);
+
+    // create surfaces
+    let border_surfaces: Vec<_> = (0..4).map(|_| compositor.create_surface()).collect();
+    let border_subsurfaces: Vec<_> = border_surfaces
+        .iter()
+        .map(|s| {
+            subcompositor
+                .get_subsurface(&s, surface)
+                .expect("Subcompositor cannot be destroyed")
+        })
+        .collect();
+    for s in &border_subsurfaces {
+        s.set_desync();
+    }
+
+    let shell_surface = shell::Surface::from_shell(surface, shell);
+
+    let meta = Arc::new(Mutex::new(SurfaceMetadata {
+        dimensions: (width, height),
+        decorate: decorate,
+        min_size: None,
+        max_size: None
+    }));
+
+    // Pointer
+    let pointer_state = {
+        let surfaces = border_surfaces.iter().map(|s| s.clone().unwrap()).collect();
+        let pointer = seat.as_ref()
+            .map(|seat| seat.get_pointer().expect("Seat cannot be dead!"));
+
+        let pointer = match pointer.map(|pointer| {
+            ThemedPointer::load(pointer, None, &compositor, &shm)
+        }) {
+            Some(Ok(themed)) => Pointer::Themed(themed),
+            Some(Err(plain)) => Pointer::Plain(plain),
+            None => Pointer::None,
+        };
+        PointerState {
+            surfaces: surfaces,
+            location: PtrLocation::None,
+            coordinates: (0., 0.),
+            meta: meta.clone(),
+            cornered: false,
+            topped: false,
+            pointer: pointer,
+            shell_surface: shell_surface.clone().unwrap(),
+            seat: seat
+        }
+    };
+
+    let mut me = DecoratedSurface {
+        shell_surface: shell_surface,
+        border_subsurfaces: border_subsurfaces,
+        border_surfaces: border_surfaces,
+        buffers: Vec::new(),
+        tempfile: tempfile,
+        pool: pool,
+        meta: meta,
+        buffer_capacity: pxcount * 4,
+    };
+
+    me.resize(width, height);
+
+    Ok((me, pointer_state))
 }
 
 fn pointer_implementation<ID>() -> wl_pointer::Implementation<DecoratedSurfaceIData<ID>> {
     wl_pointer::Implementation {
-        enter: |evlh, idata, _, serial, surface, x, y| {
-            let me = evlh.state().get_mut(&idata.token);
-            me.pointer_state.coordinates = (x, y);
-            me.pointer_state.pointer_entered(surface, serial);
+        enter: |_, idata, _, serial, surface, x, y| {
+            let mut pointer_state = idata.pointer_state.borrow_mut();
+            pointer_state.coordinates = (x, y);
+            pointer_state.pointer_entered(surface, serial);
         },
-        leave: |evlh, idata, _, serial, _| {
-            let me = evlh.state().get_mut(&idata.token);
-            me.pointer_state.pointer_left(serial);
+        leave: |_, idata, _, serial, _| {
+            let mut pointer_state = idata.pointer_state.borrow_mut();
+            pointer_state.pointer_left(serial);
         },
-        motion: |evlh, idata, _, _, x, y| {
-            let me = evlh.state().get_mut(&idata.token);
-            me.pointer_state.coordinates = (x, y);
-            me.pointer_state.update(None, false);
+        motion: |_, idata, _, _, x, y| {
+            let mut pointer_state = idata.pointer_state.borrow_mut();
+            pointer_state.coordinates = (x, y);
+            pointer_state.update(None, false);
         },
-        button: |evlh, idata, _, serial, _, button, state| {
+        button: |_, idata, _, serial, _, button, state| {
             if button != 0x110 {
                 return;
             }
             if let wl_pointer::ButtonState::Released = state {
                 return;
             }
-            let me = evlh.state().get_mut(&idata.token);
-            let (x, y) = me.pointer_state.coordinates;
-            let w = me.pointer_state.surface_width;
+            let pointer_state = idata.pointer_state.borrow_mut();
+            let (x, y) = pointer_state.coordinates;
+            let w = pointer_state.meta.lock().unwrap().dimensions.0;
             if let Some((direction, resize)) =
-                compute_pointer_action(me.pointer_state.location, x, y, w as f64)
+                compute_pointer_action(pointer_state.location, x, y, w as f64)
             {
-                if let Some(ref seat) = me.seat {
-                    match me.shell_surface {
+                if let Some(ref seat) = pointer_state.seat {
+                    match pointer_state.shell_surface {
                         shell::Surface::Xdg(ref xdg) if resize => {
                             xdg.toplevel.resize(&seat, serial, direction.to_raw());
                         }
