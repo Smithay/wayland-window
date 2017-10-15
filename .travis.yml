@@ -17,6 +17,9 @@ before_script:
         cargo install rustfmt-nightly --force
       fi
 
+matrix:
+  allow_failures:
+    - rust: nightly
 
 script:
   - |
