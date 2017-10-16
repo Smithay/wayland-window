@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.11.0 -- 2017-10-16
+
+- Rework API to not store a state value
+
 ## 0.10.0 -- 2017-10-09
 
 - Update to wayland-client-0.11
