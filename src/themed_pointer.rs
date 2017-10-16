@@ -72,3 +72,11 @@ impl Deref for ThemedPointer {
         &self.pointer
     }
 }
+
+impl Drop for ThemedPointer {
+    fn drop(&mut self) {
+        self.pointer.release();
+        self.surface.destroy();
+    }
+
+}

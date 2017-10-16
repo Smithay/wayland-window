@@ -46,6 +46,14 @@ enum Pointer {
     None,
 }
 
+impl Drop for Pointer {
+    fn drop(&mut self) {
+        if let Pointer::Plain(ref pointer) = *self {
+            pointer.release();
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub(crate) struct SurfaceMetadata {
     dimensions: (i32, i32),
@@ -169,6 +177,7 @@ pub struct DecoratedSurface {
     buffers: Vec<wl_buffer::WlBuffer>,
     tempfile: File,
     pool: wl_shm_pool::WlShmPool,
+    pointer: Option<wl_pointer::WlPointer>,
     meta: Arc<Mutex<SurfaceMetadata>>,
     buffer_capacity: usize,
 }
@@ -393,6 +402,27 @@ impl DecoratedSurface {
     }
 }
 
+impl Drop for DecoratedSurface {
+    fn drop(&mut self) {
+        self.shell_surface.destroy();
+        for s in &self.border_subsurfaces {
+            s.destroy();
+        }
+        for s in &self.border_surfaces {
+            s.destroy();
+        }
+        for b in &self.buffers {
+            b.destroy();
+        }
+        self.pool.destroy();
+        if let Some(ref pointer) = self.pointer {
+            if pointer.version() >= 3 {
+                pointer.release();
+            }
+        }
+    }
+}
+
 pub(crate) struct DecoratedSurfaceIData<ID> {
     pub(crate) pointer_state: Rc<RefCell<PointerState>>,
     pub(crate) implementation: DecoratedSurfaceImplementation<ID>,
@@ -430,11 +460,6 @@ pub fn init_decorated_surface<ID: 'static>(evqh: &mut EventQueueHandle,
             seat: Option<wl_seat::WlSeat>, decorate: bool) -> Result<DecoratedSurface, ()> {
     let (decorated_surface, pointer_state) = create_states(surface, width, height, compositor, subcompositor, shm, shell, seat, decorate)?;
     let shell_surface = decorated_surface.shell_surface.clone().unwrap();
-    let pointer = match pointer_state.pointer {
-        Pointer::Plain(ref pointer) => pointer.clone(),
-        Pointer::Themed(ref pointer) => (*pointer).clone(),
-        Pointer::None => None,
-    };
 
     let idata = DecoratedSurfaceIData {
         pointer_state: Rc::new(RefCell::new(pointer_state)),
@@ -443,8 +468,8 @@ pub fn init_decorated_surface<ID: 'static>(evqh: &mut EventQueueHandle,
     };
 
     // init implementations
-    if let Some(pointer) = pointer {
-        evqh.register(&pointer, pointer_implementation(), idata.clone());
+    if let Some(ref pointer) = decorated_surface.pointer {
+        evqh.register(pointer, pointer_implementation(), idata.clone());
     }
     shell_surface.register_to(evqh, idata);
 
@@ -524,6 +549,12 @@ fn create_states(surface: &wl_surface::WlSurface, width: i32, height: i32,
         }
     };
 
+    let pointer = match pointer_state.pointer {
+        Pointer::Plain(ref pointer) => pointer.clone(),
+        Pointer::Themed(ref pointer) => (*pointer).clone(),
+        Pointer::None => None,
+    };
+
     let mut me = DecoratedSurface {
         shell_surface: shell_surface,
         border_subsurfaces: border_subsurfaces,
@@ -533,6 +564,7 @@ fn create_states(surface: &wl_surface::WlSurface, width: i32, height: i32,
         pool: pool,
         meta: meta,
         buffer_capacity: pxcount * 4,
+        pointer: pointer
     };
 
     me.resize(width, height);

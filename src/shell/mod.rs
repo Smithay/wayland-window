@@ -77,4 +77,11 @@ impl Surface {
             }
         }
     }
+
+    pub(crate) fn destroy(&self) {
+        match *self {
+            Surface::Xdg(ref xdg) => xdg.destroy(),
+            Surface::Wl(ref _shell_surface) => { /* we can't destroy it :'( */ }
+        }
+    }
 }
