@@ -18,6 +18,12 @@ impl Surface {
             _ => None,
         }
     }
+
+    pub(crate) fn destroy(&self) {
+        // destroy surfaces in the right order
+        self.toplevel.destroy();
+        self.surface.destroy();
+    }
 }
 
 pub(crate) fn xdg_toplevel_implementation<ID>(
