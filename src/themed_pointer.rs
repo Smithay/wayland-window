@@ -78,5 +78,4 @@ impl Drop for ThemedPointer {
         self.pointer.release();
         self.surface.destroy();
     }
-
 }

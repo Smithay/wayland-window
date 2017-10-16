@@ -266,8 +266,7 @@ impl DecoratedSurface {
                 )
                 .expect("Pool was destroyed!");
             self.border_surfaces[BORDER_BOTTOM].attach(Some(&buffer), 0, 0);
-            self.border_subsurfaces[BORDER_BOTTOM]
-                .set_position(-(DECORATION_SIZE as i32), height as i32);
+            self.border_subsurfaces[BORDER_BOTTOM].set_position(-(DECORATION_SIZE as i32), height as i32);
             self.buffers.push(buffer);
         }
         // left
@@ -441,24 +440,36 @@ impl<ID> Clone for DecoratedSurfaceIData<ID> {
 
 /// Creates a new `DecoratedSurface` and inserts it in the
 /// event queue
-/// 
+///
 /// This requires you to provide:
-/// 
+///
 /// - a mutable reference to the event_queue
 /// - an implementation (and implementation data) for the decorated surface
 /// - a reference to the surface to decorate
 /// - the wanted dimensions for this decoration
 /// - a few wayland globals: compositor, subcompositor, shm, shell, and an optional seat
 /// - a bool specifying if decorations should be displayed or not
-/// 
+///
 /// If you provide a seat, it will be used to process user interaction with the decorations.
 pub fn init_decorated_surface<ID: 'static>(evqh: &mut EventQueueHandle,
                                            implementation: DecoratedSurfaceImplementation<ID>, idata: ID,
                                            surface: &wl_surface::WlSurface, width: i32, height: i32,
-            compositor: &wl_compositor::WlCompositor,
-            subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm, shell: &Shell,
-            seat: Option<wl_seat::WlSeat>, decorate: bool) -> Result<DecoratedSurface, ()> {
-    let (decorated_surface, pointer_state) = create_states(surface, width, height, compositor, subcompositor, shm, shell, seat, decorate)?;
+                                           compositor: &wl_compositor::WlCompositor,
+                                           subcompositor: &wl_subcompositor::WlSubcompositor,
+                                           shm: &wl_shm::WlShm, shell: &Shell,
+                                           seat: Option<wl_seat::WlSeat>, decorate: bool)
+                                           -> Result<DecoratedSurface, ()> {
+    let (decorated_surface, pointer_state) = create_states(
+        surface,
+        width,
+        height,
+        compositor,
+        subcompositor,
+        shm,
+        shell,
+        seat,
+        decorate,
+    )?;
     let shell_surface = decorated_surface.shell_surface.clone().unwrap();
 
     let idata = DecoratedSurfaceIData {
@@ -478,10 +489,10 @@ pub fn init_decorated_surface<ID: 'static>(evqh: &mut EventQueueHandle,
 
 /// Create a new DecoratedSurface
 fn create_states(surface: &wl_surface::WlSurface, width: i32, height: i32,
-            compositor: &wl_compositor::WlCompositor,
-            subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm, shell: &Shell,
-            seat: Option<wl_seat::WlSeat>, decorate: bool)
-            -> Result<(DecoratedSurface, PointerState), ()> {
+                 compositor: &wl_compositor::WlCompositor,
+                 subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm, shell: &Shell,
+                 seat: Option<wl_seat::WlSeat>, decorate: bool)
+                 -> Result<(DecoratedSurface, PointerState), ()> {
     // handle Shm
     let pxcount = max(
         DECORATION_TOP_SIZE * DECORATION_SIZE,
@@ -520,7 +531,7 @@ fn create_states(surface: &wl_surface::WlSurface, width: i32, height: i32,
         dimensions: (width, height),
         decorate: decorate,
         min_size: None,
-        max_size: None
+        max_size: None,
     }));
 
     // Pointer
@@ -545,7 +556,7 @@ fn create_states(surface: &wl_surface::WlSurface, width: i32, height: i32,
             topped: false,
             pointer: pointer,
             shell_surface: shell_surface.clone().unwrap(),
-            seat: seat
+            seat: seat,
         }
     };
 
@@ -564,7 +575,7 @@ fn create_states(surface: &wl_surface::WlSurface, width: i32, height: i32,
         pool: pool,
         meta: meta,
         buffer_capacity: pxcount * 4,
-        pointer: pointer
+        pointer: pointer,
     };
 
     me.resize(width, height);
@@ -598,8 +609,7 @@ fn pointer_implementation<ID>() -> wl_pointer::Implementation<DecoratedSurfaceID
             let pointer_state = idata.pointer_state.borrow_mut();
             let (x, y) = pointer_state.coordinates;
             let w = pointer_state.meta.lock().unwrap().dimensions.0;
-            if let Some((direction, resize)) =
-                compute_pointer_action(pointer_state.location, x, y, w as f64)
+            if let Some((direction, resize)) = compute_pointer_action(pointer_state.location, x, y, w as f64)
             {
                 if let Some(ref seat) = pointer_state.seat {
                     match pointer_state.shell_surface {

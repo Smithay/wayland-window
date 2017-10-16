@@ -37,7 +37,9 @@ pub(crate) fn xdg_toplevel_implementation<ID>(
                 None
             } else {
                 Some(
-                    idata.pointer_state.borrow()
+                    idata
+                        .pointer_state
+                        .borrow()
                         .clamp_to_limits((width, height)),
                 )
             };

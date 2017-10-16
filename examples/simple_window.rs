@@ -153,7 +153,9 @@ fn main() {
 
     // prepare the Window
     let wl_surface = env.compositor.create_surface();
-    let window_token = event_queue.state().insert(Window::new(wl_surface.clone().unwrap(), &env.shm));
+    let window_token = event_queue
+        .state()
+        .insert(Window::new(wl_surface.clone().unwrap(), &env.shm));
 
     // find the seat if any
     let seat = event_queue.state().with_value(&env_token, |_, env| {
