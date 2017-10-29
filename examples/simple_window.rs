@@ -14,7 +14,7 @@ use tempfile::tempfile;
 use wayland_client::{EnvHandler, Proxy, StateToken};
 use wayland_client::protocol::{wl_buffer, wl_compositor, wl_shell, wl_shm, wl_shm_pool, wl_subcompositor,
                                wl_surface};
-use wayland_protocols::unstable::xdg_shell::client::zxdg_shell_v6::{self, ZxdgShellV6};
+use wayland_protocols::unstable::xdg_shell::v6::client::zxdg_shell_v6::{self, ZxdgShellV6};
 use wayland_window::init_decorated_surface;
 
 wayland_env!(
