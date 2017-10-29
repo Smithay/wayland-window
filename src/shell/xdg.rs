@@ -1,7 +1,7 @@
 use decorated_surface::DecoratedSurfaceIData;
 use wayland_client::Proxy;
-use wayland_protocols::unstable::xdg_shell::client::zxdg_surface_v6::{self, ZxdgSurfaceV6};
-use wayland_protocols::unstable::xdg_shell::client::zxdg_toplevel_v6::{self, ZxdgToplevelV6};
+use wayland_protocols::unstable::xdg_shell::v6::client::zxdg_surface_v6::{self, ZxdgSurfaceV6};
+use wayland_protocols::unstable::xdg_shell::v6::client::zxdg_toplevel_v6::{self, ZxdgToplevelV6};
 
 pub(crate) struct Surface {
     pub toplevel: ZxdgToplevelV6,

@@ -1,7 +1,7 @@
 use decorated_surface::DecoratedSurfaceIData;
 use wayland_client::{EventQueueHandle, Proxy};
 use wayland_client::protocol::{wl_shell, wl_shell_surface, wl_surface};
-use wayland_protocols::unstable::xdg_shell;
+use wayland_protocols::unstable::xdg_shell::v6 as xdg_shell;
 
 mod xdg;
 mod wl;

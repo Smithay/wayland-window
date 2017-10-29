@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.12.0 -- 2017-10-29
+
+- Update to wayland-rs 0.12
+
 ## 0.11.0 -- 2017-10-16
 
 - Rework API to not store a state value
