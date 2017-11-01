@@ -4,17 +4,17 @@
 //! This crate is only usable in conjuction of the
 //! [`wayland-client`](https://crates.io/crates/wayland-client) crate.
 //!
-//! ## Creating a decorated shell surface
+//! ## Creating a window with decorations
 //!
-//! Creating a decorated window is simply done using the provided init function:
+//! Creating a decorated frame for your window is simply done using the provided init function:
 //!
 //! ```ignore
-//! use wayland_window::{init_decorated_surface};
+//! use wayland_window::create_frame;
 //! // if using the legacy wl_shell global
 //! let shell = Shell::Wl(my_wl_shell);
 //! // if using the new not-yet-stable xdg_shell
 //! let shell = Shell::Xdg(my_xdh_shell);
-//! let decorated_surface = init_decorated_surface(
+//! let frame = create_frame(
 //!        &mut event_queue, my_implementation, my_implementation_data,
 //!        &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat)
 //! ).unwrap(); // creation can fail
@@ -31,7 +31,7 @@
 //!
 //! ## Configure events
 //!
-//! The `DecoratedSurface` object will not resize your window itself, as it cannot do it.
+//! The `Frame` object will not resize your window itself, as it cannot do it.
 //!
 //! When the user clicks on a border and starts a resize, the server will start to generate a
 //! number of `configure` events on the shell surface. You'll need to process the events generated
@@ -49,8 +49,7 @@
 //! ```no_run
 //! # extern crate wayland_client;
 //! # extern crate wayland_window;
-//! use wayland_window::{DecoratedSurface, init_decorated_surface,
-//!                      DecoratedSurfaceImplementation};
+//! use wayland_window::{Frame, create_frame, FrameImplementation};
 //!
 //! // define a state to accumulate sizes
 //! struct ConfigureState {
@@ -63,7 +62,7 @@
 //! let configure_token = event_queue.state().insert(ConfigureState { new_size: None });
 //!
 //! // use it in your implementation:
-//! let my_implementation = DecoratedSurfaceImplementation {
+//! let my_implementation = FrameImplementation {
 //!     configure: |evqh, token, _, newsize| {
 //!         let configure_state: &mut ConfigureState = evqh.state().get_mut(token);
 //!         configure_state.new_size = newsize;
@@ -73,11 +72,11 @@
 //!
 //! # let (my_surface,width,height,compositor,subcompositor,shm,shell,seat) = unimplemented!();
 //! // create the decorated surface:
-//! let decorated_surface = init_decorated_surface(
+//! let frame = create_frame(
 //!     &mut event_queue,          // the event queue
 //!     my_implementation,         // our implementation
 //!     configure_token.clone(),   // the implementation data
-//!     &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat), true
+//!     &my_surface, width, height, &compositor, &subcompositor, &shm, &shell, Some(seat)
 //! ).unwrap();
 //!
 //! // then, while running your event loop
@@ -98,15 +97,17 @@
 //!
 //! ## Resizing the surface
 //!
-//! When resizing your main surface, you need to tell the `DecoratedSurface` that it
+//! When resizing your main surface, you need to tell the `Frame` that it
 //! must update its dimensions. This is very simple:
 //!
 //! ```ignore
-//! // update the borders size
-//! decorated_surface.resize(width, height);
 //! // update your contents size (here by attaching a new buffer)
 //! surface.attach(Some(&new_buffer));
 //! surface.commit();
+//! // update the borders size
+//! frame.resize(width, height);
+//! // refresh the frame so that it actually draws the new size
+//! frame.refresh();
 //! ```
 //!
 //! If you do this as a response of a `configure` event, note the following points:
@@ -126,10 +127,138 @@ extern crate tempfile;
 extern crate wayland_client;
 extern crate wayland_protocols;
 
-mod decorated_surface;
+mod frame;
+mod pointer;
+mod theme;
 mod themed_pointer;
 mod shell;
 
-pub use decorated_surface::{add_borders, init_decorated_surface, subtract_borders, DecoratedSurface,
-                            DecoratedSurfaceImplementation};
+pub use frame::{Frame, State};
+use pointer::{Pointer, PointerState};
 pub use shell::{Configure, Shell};
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+pub use theme::{add_borders, subtract_borders};
+use themed_pointer::ThemedPointer;
+use wayland_client::{EventQueueHandle, Proxy};
+use wayland_client::protocol::*;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum Location {
+    None,
+    Top,
+    TopRight,
+    Right,
+    BottomRight,
+    Bottom,
+    BottomLeft,
+    Left,
+    TopLeft,
+    TopBar,
+    Inside,
+    Button(UIButton),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum UIButton {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+pub(crate) struct FrameIData<ID> {
+    pub(crate) implementation: FrameImplementation<ID>,
+    pub(crate) meta: Arc<Mutex<::frame::FrameMetadata>>,
+    pub(crate) idata: Rc<RefCell<ID>>,
+}
+
+pub(crate) struct PointerIData<ID> {
+    pub(crate) implementation: FrameImplementation<ID>,
+    pub(crate) pstate: PointerState,
+    pub(crate) idata: Rc<RefCell<ID>>,
+}
+
+impl<ID> Clone for FrameIData<ID> {
+    fn clone(&self) -> FrameIData<ID> {
+        FrameIData {
+            implementation: self.implementation.clone(),
+            meta: self.meta.clone(),
+            idata: self.idata.clone(),
+        }
+    }
+}
+
+/// For handling events that occur to a DecoratedSurface.
+pub struct FrameImplementation<ID> {
+    /// Called whenever the DecoratedSurface has been resized.
+    ///
+    /// **Note:** if you've not set a minimum size, `width` and `height` will not always be
+    /// positive values. Values can be negative if a user attempts to resize the window past
+    /// the left or top borders.
+    pub configure:
+        fn(evqh: &mut EventQueueHandle, idata: &mut ID, cfg: shell::Configure, newsize: Option<(i32, i32)>),
+    /// Called when the DecoratedSurface is closed.
+    pub close: fn(evqh: &mut EventQueueHandle, idata: &mut ID),
+}
+
+impl<ID> Copy for FrameImplementation<ID> {}
+impl<ID> Clone for FrameImplementation<ID> {
+    fn clone(&self) -> FrameImplementation<ID> {
+        *self
+    }
+}
+
+pub fn create_frame<ID: 'static>(evqh: &mut EventQueueHandle, implementation: FrameImplementation<ID>,
+                                 idata: ID, surface: &wl_surface::WlSurface, width: i32, height: i32,
+                                 compositor: &wl_compositor::WlCompositor,
+                                 subcompositor: &wl_subcompositor::WlSubcompositor, shm: &wl_shm::WlShm,
+                                 shell: &Shell, seat: Option<wl_seat::WlSeat>)
+                                 -> Result<Frame, ()> {
+    // create the frame
+    let mut frame = Frame::new(
+        surface,
+        width,
+        height,
+        compositor,
+        subcompositor,
+        shm,
+        shell,
+    )?;
+
+    let frame_idata = FrameIData {
+        implementation: implementation,
+        meta: frame.meta.clone(),
+        idata: Rc::new(RefCell::new(idata)),
+    };
+
+    // create the pointer
+    if let Some(seat) = seat {
+        let pointer = seat.get_pointer().expect("Received a defunct seat.");
+        frame.pointer = pointer.clone();
+        let pointer = ThemedPointer::load(pointer, None, &compositor, &shm)
+            .map(Pointer::Themed)
+            .unwrap_or_else(Pointer::Plain);
+        let pstate = PointerState::new(
+            frame.meta.clone(),
+            pointer,
+            frame.surface.clone().unwrap(),
+            frame.shell_surface.clone().unwrap(),
+            seat,
+        );
+        let pointer_idata = PointerIData {
+            implementation: implementation,
+            pstate: pstate,
+            idata: frame_idata.idata.clone(),
+        };
+        evqh.register(
+            frame.pointer.as_ref().unwrap(),
+            ::pointer::pointer_implementation(),
+            pointer_idata,
+        );
+    }
+
+    frame.shell_surface.register_to(evqh, frame_idata);
+
+    Ok(frame)
+}

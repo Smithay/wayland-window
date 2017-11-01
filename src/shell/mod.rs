@@ -1,6 +1,6 @@
-use decorated_surface::DecoratedSurfaceIData;
+use FrameIData;
 use wayland_client::{EventQueueHandle, Proxy};
-use wayland_client::protocol::{wl_shell, wl_shell_surface, wl_surface};
+use wayland_client::protocol::*;
 use wayland_protocols::unstable::xdg_shell::v6 as xdg_shell;
 
 mod xdg;
@@ -9,6 +9,15 @@ mod wl;
 pub enum Shell {
     Xdg(xdg_shell::client::zxdg_shell_v6::ZxdgShellV6),
     Wl(wl_shell::WlShell),
+}
+
+impl Shell {
+    pub(crate) fn needs_readiness(&self) -> bool {
+        match *self {
+            Shell::Xdg(_) => true,
+            Shell::Wl(_) => false,
+        }
+    }
 }
 
 pub(crate) enum Surface {
@@ -57,8 +66,7 @@ impl Surface {
         }
     }
 
-    pub(crate) fn register_to<ID: 'static>(&self, evqh: &mut EventQueueHandle,
-                                           idata: DecoratedSurfaceIData<ID>) {
+    pub(crate) fn register_to<ID: 'static>(&self, evqh: &mut EventQueueHandle, idata: FrameIData<ID>) {
         match *self {
             Surface::Xdg(ref xdg) => {
                 evqh.register(
@@ -82,6 +90,115 @@ impl Surface {
         match *self {
             Surface::Xdg(ref xdg) => xdg.destroy(),
             Surface::Wl(ref _shell_surface) => { /* we can't destroy it :'( */ }
+        }
+    }
+
+    pub(crate) fn resize(&self, seat: &wl_seat::WlSeat, serial: u32, direction: wl_shell_surface::Resize) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.resize(seat, serial, direction.to_raw());
+            }
+            Surface::Wl(ref shell_surface) => shell_surface.resize(seat, serial, direction),
+        }
+    }
+
+    pub(crate) fn _move(&self, seat: &wl_seat::WlSeat, serial: u32) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel._move(seat, serial);
+            }
+            Surface::Wl(ref shell_surface) => shell_surface._move(seat, serial),
+        }
+    }
+
+    pub(crate) fn set_title(&self, title: String) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.set_title(title);
+            }
+            Surface::Wl(ref wl) => {
+                wl.set_title(title);
+            }
+        }
+    }
+
+    pub(crate) fn set_app_id(&self, title: String) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.set_app_id(title);
+            }
+            Surface::Wl(ref wl) => {
+                wl.set_class(title);
+            }
+        }
+    }
+
+    pub(crate) fn set_fullscreen(&self, output: Option<&wl_output::WlOutput>) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.set_fullscreen(output);
+            }
+            Surface::Wl(ref wl) => {
+                let method = wl_shell_surface::FullscreenMethod::Default;
+                let framerate = 0; // Let the server decide the framerate.
+                wl.set_fullscreen(method, framerate, output);
+            }
+        }
+    }
+
+    pub(crate) fn unset_fullscreen(&self) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.unset_fullscreen();
+            }
+            Surface::Wl(ref wl) => {
+                wl.set_toplevel();
+            }
+        }
+    }
+
+    pub(crate) fn set_maximized(&self) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.set_maximized();
+            }
+            Surface::Wl(ref wl) => {
+                wl.set_maximized(None);
+            }
+        }
+    }
+
+    pub(crate) fn unset_maximized(&self) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.unset_maximized();
+            }
+            Surface::Wl(ref wl) => {
+                wl.set_toplevel();
+            }
+        }
+    }
+
+    pub(crate) fn set_minimized(&self) {
+        match *self {
+            Surface::Xdg(ref xdg) => {
+                xdg.toplevel.set_minimized();
+            }
+            Surface::Wl(_) => { /* not available */ }
+        }
+    }
+
+    pub(crate) fn set_min_size(&self, size: Option<(i32, i32)>) {
+        if let Surface::Xdg(ref xdg) = *self {
+            let (w, h) = size.unwrap_or((0, 0));
+            xdg.toplevel.set_min_size(w, h);
+        }
+    }
+
+    pub(crate) fn set_max_size(&self, size: Option<(i32, i32)>) {
+        if let Surface::Xdg(ref xdg) = *self {
+            let (w, h) = size.unwrap_or((0, 0));
+            xdg.toplevel.set_max_size(w, h);
         }
     }
 }

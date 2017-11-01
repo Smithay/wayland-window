@@ -15,7 +15,7 @@ use wayland_client::{EnvHandler, Proxy, StateToken};
 use wayland_client::protocol::{wl_buffer, wl_compositor, wl_shell, wl_shm, wl_shm_pool, wl_subcompositor,
                                wl_surface};
 use wayland_protocols::unstable::xdg_shell::v6::client::zxdg_shell_v6::{self, ZxdgShellV6};
-use wayland_window::init_decorated_surface;
+use wayland_window::create_frame;
 
 wayland_env!(
     WaylandEnv,
@@ -34,8 +34,8 @@ struct Window {
     closed: bool,
 }
 
-fn window_implementation() -> wayland_window::DecoratedSurfaceImplementation<StateToken<Window>> {
-    wayland_window::DecoratedSurfaceImplementation {
+fn window_implementation() -> wayland_window::FrameImplementation<StateToken<Window>> {
+    wayland_window::FrameImplementation {
         configure: |evqh, token, config, newsize| {
             if let Some((w, h)) = newsize {
                 println!("configure newsize: {:?}", (w, h));
@@ -167,7 +167,7 @@ fn main() {
         None
     });
 
-    let mut decorated_surface = init_decorated_surface(
+    let mut frame = create_frame(
         &mut event_queue,
         window_implementation(),
         window_token.clone(),
@@ -179,14 +179,13 @@ fn main() {
         &env.shm,
         &shell,
         seat,
-        true,
     ).unwrap();
 
-    decorated_surface.set_title("My example window".into());
-    decorated_surface.set_min_size(Some((100, 100)));
-    decorated_surface.set_max_size(Some((250, 250)));
-
-    wl_surface.commit();
+    frame.set_title("My example window".into());
+    frame.set_min_size(Some((100, 100)));
+    frame.set_max_size(Some((250, 250)));
+    frame.set_decorate(true);
+    frame.refresh();
 
     loop {
         display.flush().unwrap();
@@ -195,8 +194,9 @@ fn main() {
         // resize if needed
         event_queue.state().with_value(&window_token, |_, window| {
             if let Some((w, h)) = window.newsize.take() {
-                decorated_surface.resize(w, h);
+                frame.resize(w, h);
                 window.resize(w, h);
+                frame.refresh();
             }
         });
     }
