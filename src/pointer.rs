@@ -47,7 +47,7 @@ impl PointerState {
 
     fn pointer_entered(&mut self, surface: &wl_surface::WlSurface, serial: u32) {
         if self.frame_surface.equals(surface) {
-            self.update(Some(serial), true)
+            self.update(Some(serial), true);
         } else {
             // A surface that we don't manage
             self.meta.lock().unwrap().ptr_location = Location::None;
@@ -61,18 +61,27 @@ impl PointerState {
         self.change_pointer(Location::None, Some(serial))
     }
 
-    fn update(&mut self, serial: Option<u32>, force: bool) {
+    fn update(&mut self, serial: Option<u32>, force: bool) -> bool {
         let mut meta = self.meta.lock().unwrap();
         let new_location = if meta.decorate && !meta.fullscreen {
             compute_location(self.coordinates, meta.dimensions)
         } else {
             Location::Inside
         };
+
         if new_location != self.location || force {
+            // a button is hovered, we need a redraw
+            if let Location::Button(_) = self.location {
+                meta.need_redraw = true;
+            }
+            if let Location::Button(_) = new_location {
+                meta.need_redraw = true;
+            }
             self.location = new_location;
             self.change_pointer(new_location, serial);
             meta.ptr_location = new_location;
         }
+        return meta.need_redraw;
     }
 
     fn change_pointer(&self, location: Location, serial: Option<u32>) {
@@ -102,9 +111,13 @@ pub(crate) fn pointer_implementation<ID>() -> wl_pointer::Implementation<Pointer
         leave: |_, idata, _, serial, _| {
             idata.pstate.pointer_left(serial);
         },
-        motion: |_, idata, _, _, x, y| if idata.pstate.location != Location::None {
+        motion: |evqh, idata, _, _, x, y| if idata.pstate.location != Location::None {
             idata.pstate.coordinates = (x, y);
-            idata.pstate.update(None, false);
+            let need_redraw = idata.pstate.update(None, false);
+            if need_redraw {
+                let mut user_idata = idata.idata.borrow_mut();
+                (idata.implementation.refresh)(evqh, &mut *user_idata);
+            }
         },
         button: |evqh, idata, _, serial, _, button, state| {
             if button != 0x110 {
@@ -127,6 +140,10 @@ pub(crate) fn pointer_implementation<ID>() -> wl_pointer::Implementation<Pointer
                     UIButton::Maximize => {
                         let maximize = {
                             let mut meta = idata.pstate.meta.lock().unwrap();
+                            if meta.max_size.is_some() {
+                                // there is a max size, the button is greyed
+                                return;
+                            }
                             let old_val = meta.maximized;
                             meta.maximized = !old_val;
                             meta.need_redraw = true;

@@ -32,6 +32,7 @@ struct Window {
     buf: wl_buffer::WlBuffer,
     newsize: Option<(i32, i32)>,
     closed: bool,
+    refresh: bool,
 }
 
 fn window_implementation() -> wayland_window::FrameImplementation<StateToken<Window>> {
@@ -46,6 +47,9 @@ fn window_implementation() -> wayland_window::FrameImplementation<StateToken<Win
         close: |evqh, token| {
             println!("close window");
             evqh.state().get_mut(token).closed = true;
+        },
+        refresh: |evqh, token| {
+            evqh.state().get_mut(token).refresh = true;
         },
     }
 }
@@ -70,6 +74,7 @@ impl Window {
             buf: buffer,
             newsize: Some((200, 150)),
             closed: false,
+            refresh: false,
         }
     }
     fn resize(&mut self, width: i32, height: i32) {
@@ -182,8 +187,6 @@ fn main() {
     ).unwrap();
 
     frame.set_title("My example window".into());
-    frame.set_min_size(Some((100, 100)));
-    frame.set_max_size(Some((250, 250)));
     frame.set_decorate(true);
     frame.refresh();
 
@@ -192,12 +195,20 @@ fn main() {
         event_queue.dispatch().unwrap();
 
         // resize if needed
-        event_queue.state().with_value(&window_token, |_, window| {
+        let keep_going = event_queue.state().with_value(&window_token, |_, window| {
             if let Some((w, h)) = window.newsize.take() {
                 frame.resize(w, h);
                 window.resize(w, h);
                 frame.refresh();
+            } else if window.refresh {
+                frame.refresh();
             }
+            window.refresh = false;
+            !window.closed
         });
+
+        if !keep_going {
+            break;
+        }
     }
 }

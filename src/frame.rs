@@ -123,7 +123,7 @@ impl Frame {
     }
 
     pub(crate) fn redraw(&mut self) {
-        let meta = self.meta.lock().unwrap();
+        let mut meta = self.meta.lock().unwrap();
         if !meta.ready {
             return;
         }
@@ -156,7 +156,14 @@ impl Frame {
         }
         // rewrite the data
         self.tempfile.seek(SeekFrom::Start(0)).unwrap();
-        let _ = ::theme::draw_contents(&mut self.tempfile, w, h, meta.maximized, meta.ptr_location);
+        let _ = ::theme::draw_contents(
+            &mut self.tempfile,
+            w as u32,
+            h as u32,
+            meta.maximized,
+            meta.max_size.is_none(),
+            meta.ptr_location,
+        );
         self.tempfile.flush().unwrap();
 
         // commit a new buffer
@@ -169,7 +176,17 @@ impl Frame {
             .create_buffer(0, full_w, full_h, full_w * 4, wl_shm::Format::Argb8888)
             .expect("The pool cannot be defunct!");
         self.surface.attach(Some(&buffer), 0, 0);
+        // damage the surface
+        if self.surface.version() >= 4 {
+            self.surface.damage_buffer(0, 0, full_w, full_h);
+        } else {
+            // surface is old and does not support damage_buffer, so we damage
+            // in surface coordinates and hope it is not rescaled
+            self.surface.damage(0, 0, full_w, full_h);
+        }
         self.surface.commit();
+        self.buffer = Some(buffer);
+        meta.need_redraw = false;
     }
 
     /// Refreshes the frame
@@ -229,7 +246,7 @@ impl Frame {
     ///
     /// You should call this whenever you change the size of the contents
     /// of your window, with the new _inner size_ of your window.
-    /// 
+    ///
     /// You need to call `refresh()` afterwards for this to properly
     /// take effect.
     pub fn resize(&mut self, w: i32, h: i32) {
