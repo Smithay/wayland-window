@@ -67,7 +67,8 @@
 //!         let configure_state: &mut ConfigureState = evqh.state().get_mut(token);
 //!         configure_state.new_size = newsize;
 //!     },
-//!     close: |_, _| { /* ... */ }
+//!     close: |_, _| { /* ... */ },
+//!     refresh: |_, _| { /* ... */ }
 //! };
 //!
 //! # let (my_surface,width,height,compositor,subcompositor,shm,shell,seat) = unimplemented!();
@@ -123,6 +124,7 @@
 //!   you can use the `add_borders` and `subtract_borders` functions.
 
 extern crate byteorder;
+extern crate image;
 extern crate tempfile;
 extern crate wayland_client;
 extern crate wayland_protocols;
@@ -189,17 +191,19 @@ impl<ID> Clone for FrameIData<ID> {
     }
 }
 
-/// For handling events that occur to a DecoratedSurface.
+/// For handling events that occur to a Frame.
 pub struct FrameImplementation<ID> {
-    /// Called whenever the DecoratedSurface has been resized.
+    /// Called whenever the Frame has been resized.
     ///
     /// **Note:** if you've not set a minimum size, `width` and `height` will not always be
     /// positive values. Values can be negative if a user attempts to resize the window past
     /// the left or top borders.
     pub configure:
         fn(evqh: &mut EventQueueHandle, idata: &mut ID, cfg: shell::Configure, newsize: Option<(i32, i32)>),
-    /// Called when the DecoratedSurface is closed.
+    /// Called when the Frame is closed.
     pub close: fn(evqh: &mut EventQueueHandle, idata: &mut ID),
+    /// Called when the Frame wants to be refreshed
+    pub refresh: fn(evqh: &mut EventQueueHandle, idata: &mut ID),
 }
 
 impl<ID> Copy for FrameImplementation<ID> {}

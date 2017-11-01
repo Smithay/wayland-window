@@ -14,6 +14,7 @@ travis-ci = { repository = "Smithay/wayland-window" }
 [dependencies]
 byteorder = "1.0"
 tempfile = "2.0"
+image = "0.17"
 wayland-client = { version = "0.12.0", features = ["cursor"] }
 wayland-protocols = { version = "0.12.0", features = ["client", "unstable_protocols"] }
 
