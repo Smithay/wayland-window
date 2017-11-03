@@ -123,8 +123,8 @@
 //!   gave. If you need to compute dimensions taking into account the sizes of the borders,
 //!   you can use the `add_borders` and `subtract_borders` functions.
 
-extern crate byteorder;
 extern crate image;
+extern crate memmap;
 extern crate tempfile;
 extern crate wayland_client;
 extern crate wayland_protocols;
