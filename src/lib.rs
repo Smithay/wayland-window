@@ -123,6 +123,8 @@
 //!   gave. If you need to compute dimensions taking into account the sizes of the borders,
 //!   you can use the `add_borders` and `subtract_borders` functions.
 
+#![warn(missing_docs)]
+
 extern crate image;
 extern crate memmap;
 extern crate tempfile;
@@ -213,6 +215,12 @@ impl<ID> Clone for FrameImplementation<ID> {
     }
 }
 
+/// Create a decoration frame for a wl_surface
+///
+/// This will create a decoration and declare it as a shell surface to
+/// the wayland compositor.
+///
+/// See crate documentations for details about how to use it.
 pub fn create_frame<ID: 'static>(evqh: &mut EventQueueHandle, implementation: FrameImplementation<ID>,
                                  idata: ID, surface: &wl_surface::WlSurface, width: i32, height: i32,
                                  compositor: &wl_compositor::WlCompositor,

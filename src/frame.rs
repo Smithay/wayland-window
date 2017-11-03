@@ -44,6 +44,15 @@ impl FrameMetadata {
     }
 }
 
+/// A decorated frame for a window
+///
+/// This object allows you to interact with the shell_surface
+/// and frame.
+///
+/// You'll at least need to use it to resize the borders when you window is
+/// resized.
+///
+/// Dropping it will remove your window and unmap your wl_surface.
 pub struct Frame {
     pub(crate) surface: wl_surface::WlSurface,
     contents: wl_subsurface::WlSubsurface,
@@ -56,10 +65,15 @@ pub struct Frame {
     buffer_capacity: i32,
 }
 
+/// Possible requested state for a window
 pub enum State<'output> {
+    /// Regular floating window
     Regular,
+    /// Minimized window
     Minimized,
+    /// Maximized window
     Maximized,
+    /// Fullscreen, with optional specification of an output to maximize over
     Fullscreen(Option<&'output wl_output::WlOutput>),
 }
 

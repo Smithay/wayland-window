@@ -6,8 +6,11 @@ use wayland_protocols::unstable::xdg_shell::v6 as xdg_shell;
 mod xdg;
 mod wl;
 
+/// Enum over the supported shells
 pub enum Shell {
+    /// A xdg_shell from unstable v6
     Xdg(xdg_shell::client::zxdg_shell_v6::ZxdgShellV6),
+    /// A wl_shell
     Wl(wl_shell::WlShell),
 }
 
@@ -28,7 +31,9 @@ pub(crate) enum Surface {
 /// Configure data for a decorated surface handler.
 #[derive(Debug, Clone)]
 pub enum Configure {
+    /// Configure data from xdg_shell
     Xdg(Vec<xdg_shell::client::zxdg_toplevel_v6::State>),
+    /// Configure data from wl_shell
     Wl(wl_shell_surface::Resize),
 }
 

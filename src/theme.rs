@@ -113,7 +113,7 @@ pub(crate) fn pxcount(w: i32, h: i32) -> i32 {
 /// Draw the decorations on the rectangle
 ///
 /// Actual contents of the window will be drawn on top
-pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, maximized: bool,
+pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, _maximized: bool,
                             maximizable: bool, ptr_location: Location) {
     let ds = DECORATION_SIZE as u32;
     let dts = DECORATION_TOP_SIZE as u32;
