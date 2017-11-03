@@ -12,11 +12,12 @@ categories = ["gui"]
 travis-ci = { repository = "Smithay/wayland-window" }
 
 [dependencies]
-byteorder = "1.0"
 tempfile = "2.0"
 image = "0.17"
+memmap = "0.6"
 wayland-client = { version = "0.12.0", features = ["cursor"] }
 wayland-protocols = { version = "0.12.0", features = ["client", "unstable_protocols"] }
 
 [dev-dependencies]
+byteorder = "1.0"
 wayland-client = { version = "0.12.0", features = ["cursor", "dlopen"] }

@@ -1,5 +1,4 @@
 use Location;
-use byteorder::{NativeEndian, WriteBytesExt};
 use shell;
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
@@ -136,7 +135,7 @@ impl Frame {
             // setup a dummy surface so that the subsurface does all
             // write a transparent buffer
             self.tempfile.seek(SeekFrom::Start(0)).unwrap();
-            let _ = self.tempfile.write_u32::<NativeEndian>(0x00000000);
+            let _ = self.tempfile.write_all(&[0, 0, 0, 0]).unwrap();
             self.tempfile.flush().unwrap();
             if let Some(buffer) = self.buffer.take() {
                 // TODO: better handling of buffer release
@@ -159,9 +158,14 @@ impl Frame {
             self.buffer_capacity = pxcount * 4;
         }
         // rewrite the data
-        self.tempfile.seek(SeekFrom::Start(0)).unwrap();
+        let mut mmap = unsafe {
+            ::memmap::MmapOptions::new()
+                .len(pxcount as usize * 4)
+                .map_mut(&self.tempfile)
+                .unwrap()
+        };
         let _ = ::theme::draw_contents(
-            &mut self.tempfile,
+            &mut *mmap,
             w as u32,
             h as u32,
             meta.activated,
@@ -169,7 +173,8 @@ impl Frame {
             meta.max_size.is_none(),
             meta.ptr_location,
         );
-        self.tempfile.flush().unwrap();
+        mmap.flush().unwrap();
+        drop(mmap);
 
         // commit a new buffer
         if let Some(buffer) = self.buffer.take() {

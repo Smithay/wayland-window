@@ -1,10 +1,33 @@
 use {Location, UIButton};
-use byteorder::{NativeEndian, WriteBytesExt};
 use image::{ImageBuffer, Rgba};
-use std::io;
 
 const DECORATION_SIZE: i32 = 8;
 const DECORATION_TOP_SIZE: i32 = 32;
+
+#[cfg(target_endian = "little")]
+macro_rules! auto_endian(
+    ($a: expr, $r: expr, $g: expr, $b: expr) => {
+        [$b, $g, $r, $a]
+    }
+);
+
+#[cfg(target_endian = "big")]
+macro_rules! auto_endian(
+    ($a: expr, $r: expr, $g: expr, $b: expr) => {
+        [$a, $r, $g, $b]
+    }
+);
+
+// defining the color scheme
+const INACTIVE_BORDER: [u8; 4] = auto_endian!(0xFF, 0x60, 0x60, 0x60);
+const ACTIVE_BORDER: [u8; 4] = auto_endian!(0xFF, 0x80, 0x80, 0x80);
+const RED_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0xFF, 0x40, 0x40);
+const RED_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0xB0, 0x40, 0x40);
+const GREEN_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0x40, 0xFF, 0x40);
+const GREEN_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0x40, 0xB0, 0xF0);
+const YELLOW_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0xB0, 0xB0, 0x40);
+const YELLOW_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0xFF, 0xFF, 0x40);
+const YELLOW_BUTTON_DISABLED: [u8; 4] = auto_endian!(0xFF, 0x80, 0x80, 0x20);
 
 /// Compute on which part of the window given point falls
 pub(crate) fn compute_location((x, y): (f64, f64), (w, h): (i32, i32)) -> Location {
@@ -17,9 +40,8 @@ pub(crate) fn compute_location((x, y): (f64, f64), (w, h): (i32, i32)) -> Locati
                 Location::Top
             } else {
                 // check for buttons
-                if (w >= 24) && (x > (w + DECORATION_SIZE - 24) as f64)
-                    && (x <= (w + DECORATION_SIZE) as f64) && (y > DECORATION_SIZE as f64)
-                    && (y <= (DECORATION_SIZE + 16) as f64)
+                if (w >= 24) && (x > (w + DECORATION_SIZE - 24) as f64) && (x <= (w + DECORATION_SIZE) as f64)
+                    && (y > DECORATION_SIZE as f64) && (y <= (DECORATION_SIZE + 16) as f64)
                 {
                     Location::Button(UIButton::Close)
                 } else if (w >= 56) && (x > (w + DECORATION_SIZE - 56) as f64)
@@ -91,25 +113,11 @@ pub(crate) fn pxcount(w: i32, h: i32) -> i32 {
 /// Draw the decorations on the rectangle
 ///
 /// Actual contents of the window will be drawn on top
-pub(crate) fn draw_contents<W: io::Write>(mut to: W, w: u32, h: u32, activated: bool, maximized: bool, maximizable: bool,
-                                          ptr_location: Location)
-                                          -> io::Result<()> {
-    let drawn = draw_image(w, h, activated, maximized, maximizable, ptr_location);
-    for p in drawn.pixels() {
-        let val = ((p.data[3] as u32) << 24) // A
-                + ((p.data[0] as u32) << 16) // R
-                + ((p.data[1] as u32) << 8 ) // G
-                + (p.data[2] as u32); // B
-        to.write_u32::<NativeEndian>(val)?;
-    }
-    Ok(())
-}
-
-fn draw_image(w: u32, h: u32, activated: bool, maximized: bool, maximizable: bool, ptr_location: Location)
-              -> ImageBuffer<Rgba<u8>, Vec<u8>> {
+pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, maximized: bool,
+                            maximizable: bool, ptr_location: Location) {
     let ds = DECORATION_SIZE as u32;
     let dts = DECORATION_TOP_SIZE as u32;
-    let mut canvas = ImageBuffer::<Rgba<u8>, Vec<u8>>::new(w + 2 * ds, h + ds + dts);
+    let mut canvas = ImageBuffer::<Rgba<u8>, _>::from_raw(w + 2 * ds, h + ds + dts, canvas).unwrap();
     // draw the borders
     let border_rectangles = [
         (0, 0, w + 2 * ds, dts),      // top rectangle
@@ -118,11 +126,16 @@ fn draw_image(w: u32, h: u32, activated: bool, maximized: bool, maximizable: boo
         (0, h + dts, w + 2 * ds, ds), // bottom rectangle
     ];
 
+    // We've built an ImageBuffer from a raw &[u8] buffer, and the wayland spec
+    // explicitly says we should use native endiannes
+    // also we're doing ARGB (while image expects RGBA), though as long as we
+    // only blit pixels it's not very important
+
     // fill these rectangles with grey
     let border_color = if activated {
-        [0x80, 0x80, 0x80, 0xFF]
+        ACTIVE_BORDER
     } else {
-        [0x60, 0x60, 0x60, 0xFF]
+        INACTIVE_BORDER
     };
     for &(x, y, w, h) in &border_rectangles {
         for xx in x..(x + w) {
@@ -135,9 +148,9 @@ fn draw_image(w: u32, h: u32, activated: bool, maximized: bool, maximizable: boo
     // draw the red close button
     if w >= 24 {
         let button_color = if let Location::Button(UIButton::Close) = ptr_location {
-            [0xFF, 0x40, 0x40, 0xFF]
+            RED_BUTTON_HOVER
         } else {
-            [0xB0, 0x40, 0x40, 0xFF]
+            RED_BUTTON_REGULAR
         };
         for xx in (w + ds - 24)..(w + ds) {
             for yy in ds..(ds + 16) {
@@ -150,12 +163,12 @@ fn draw_image(w: u32, h: u32, activated: bool, maximized: bool, maximizable: boo
     if w >= 56 {
         let button_color = if maximizable {
             if let Location::Button(UIButton::Maximize) = ptr_location {
-                [0xFF, 0xFF, 0x40, 0xFF]
+                YELLOW_BUTTON_HOVER
             } else {
-                [0xB0, 0xB0, 0x40, 0xFF]
+                YELLOW_BUTTON_REGULAR
             }
         } else {
-            [0x80, 0x80, 0x20, 0xFF]
+            YELLOW_BUTTON_DISABLED
         };
         for xx in (w + ds - 56)..(w + ds - 32) {
             for yy in ds..(ds + 16) {
@@ -167,9 +180,9 @@ fn draw_image(w: u32, h: u32, activated: bool, maximized: bool, maximizable: boo
     // draw the green minimize button
     if w >= 88 {
         let button_color = if let Location::Button(UIButton::Minimize) = ptr_location {
-            [0x40, 0xFF, 0x40, 0xFF]
+            GREEN_BUTTON_HOVER
         } else {
-            [0x40, 0xB0, 0x40, 0xFF]
+            GREEN_BUTTON_REGULAR
         };
         for xx in (w + ds - 88)..(w + ds - 64) {
             for yy in ds..(ds + 16) {
@@ -177,6 +190,4 @@ fn draw_image(w: u32, h: u32, activated: bool, maximized: bool, maximizable: boo
             }
         }
     }
-    // end
-    canvas
 }

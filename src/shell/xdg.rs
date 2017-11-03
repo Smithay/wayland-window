@@ -38,9 +38,9 @@ pub(crate) fn xdg_toplevel_implementation<ID>() -> zxdg_toplevel_v6::Implementat
             let view: &[u32] =
                 unsafe { ::std::slice::from_raw_parts(states.as_ptr() as *const _, states.len() / 4) };
             let states = view.iter()
-                    .cloned()
-                    .flat_map(zxdg_toplevel_v6::State::from_raw)
-                    .collect::<Vec<_>>();
+                .cloned()
+                .flat_map(zxdg_toplevel_v6::State::from_raw)
+                .collect::<Vec<_>>();
             let activated = states.contains(&zxdg_toplevel_v6::State::Activated);
             let new_maximized = states.contains(&zxdg_toplevel_v6::State::Maximized);
             let configure = super::Configure::Xdg(states);
@@ -56,7 +56,7 @@ pub(crate) fn xdg_toplevel_implementation<ID>() -> zxdg_toplevel_v6::Implementat
                             newsize = meta.old_size;
                         }
                         meta.old_size = None;
-                    },
+                    }
                     (true, false) => {
                         // we are being maximized
                         meta.maximized = true;

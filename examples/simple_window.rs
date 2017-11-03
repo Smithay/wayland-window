@@ -189,7 +189,7 @@ fn main() {
 
     frame.set_title("My example window".into());
     frame.set_decorate(true);
-    frame.set_min_size(Some((10,10)));
+    frame.set_min_size(Some((10, 10)));
     frame.refresh();
 
     loop {
