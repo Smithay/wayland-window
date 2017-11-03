@@ -139,15 +139,12 @@ pub(crate) fn pointer_implementation<ID>() -> wl_pointer::Implementation<Pointer
                     }
                     UIButton::Maximize => {
                         let maximize = {
-                            let mut meta = idata.pstate.meta.lock().unwrap();
+                            let meta = idata.pstate.meta.lock().unwrap();
                             if meta.max_size.is_some() {
                                 // there is a max size, the button is greyed
                                 return;
                             }
-                            let old_val = meta.maximized;
-                            meta.maximized = !old_val;
-                            meta.need_redraw = true;
-                            !old_val
+                            !meta.maximized
                         };
                         if maximize {
                             idata.pstate.shell_surface.set_maximized();

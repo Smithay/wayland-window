@@ -17,6 +17,7 @@ pub(crate) struct FrameMetadata {
     pub(crate) maximized: bool,
     pub(crate) min_size: Option<(i32, i32)>,
     pub(crate) max_size: Option<(i32, i32)>,
+    pub(crate) old_size: Option<(i32, i32)>,
     pub(crate) activated: bool,
     pub(crate) ready: bool,
     pub(crate) need_redraw: bool,
@@ -92,6 +93,7 @@ impl Frame {
             maximized: false,
             min_size: None,
             max_size: None,
+            old_size: None,
             activated: true,
             ready: !shell.needs_readiness(),
             need_redraw: shell.needs_readiness(),
@@ -267,9 +269,6 @@ impl Frame {
             State::Regular => {
                 self.shell_surface.unset_fullscreen();
                 self.shell_surface.unset_maximized();
-                let mut meta = self.meta.lock().unwrap();
-                meta.need_redraw = true;
-                meta.maximized = false;
             }
             State::Minimized => {
                 self.shell_surface.unset_fullscreen();
@@ -278,13 +277,9 @@ impl Frame {
             State::Maximized => {
                 self.shell_surface.unset_fullscreen();
                 self.shell_surface.set_maximized();
-                let mut meta = self.meta.lock().unwrap();
-                meta.need_redraw = true;
-                meta.maximized = true;
             }
             State::Fullscreen(output) => {
                 self.shell_surface.set_fullscreen(output);
-                self.meta.lock().unwrap().need_redraw = true;
             }
         }
     }

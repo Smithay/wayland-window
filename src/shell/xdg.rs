@@ -29,7 +29,7 @@ impl Surface {
 pub(crate) fn xdg_toplevel_implementation<ID>() -> zxdg_toplevel_v6::Implementation<FrameIData<ID>> {
     zxdg_toplevel_v6::Implementation {
         configure: |evqh, idata, _, width, height, states| {
-            let newsize = if width == 0 || height == 0 {
+            let mut newsize = if width == 0 || height == 0 {
                 // if either w or h is zero, then we get to choose our size
                 None
             } else {
@@ -42,11 +42,28 @@ pub(crate) fn xdg_toplevel_implementation<ID>() -> zxdg_toplevel_v6::Implementat
                     .flat_map(zxdg_toplevel_v6::State::from_raw)
                     .collect::<Vec<_>>();
             let activated = states.contains(&zxdg_toplevel_v6::State::Activated);
+            let new_maximized = states.contains(&zxdg_toplevel_v6::State::Maximized);
             let configure = super::Configure::Xdg(states);
             {
                 let mut meta = idata.meta.lock().unwrap();
                 meta.need_redraw = true;
                 meta.activated = activated;
+                match (new_maximized, meta.maximized) {
+                    (false, true) => {
+                        // we got de-maximized
+                        meta.maximized = false;
+                        if newsize.is_none() {
+                            newsize = meta.old_size;
+                        }
+                        meta.old_size = None;
+                    },
+                    (true, false) => {
+                        // we are being maximized
+                        meta.maximized = true;
+                        meta.old_size = Some(meta.dimensions);
+                    }
+                    _ => { /* nothing changed */ }
+                }
             }
             let mut user_idata = idata.idata.borrow_mut();
             (idata.implementation.configure)(evqh, &mut *user_idata, configure, newsize);
