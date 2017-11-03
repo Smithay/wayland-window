@@ -93,6 +93,7 @@ impl Window {
                 .write_u32::<NativeEndian>((0xFF << 24) + (r << 16) + (g << 8) + b)
                 .unwrap();
         }
+        self.tmp.flush().unwrap();
         if (width * height * 4) as usize > self.pool_size {
             // the buffer has grown, notify the compositor
             self.pool.resize(width * height * 4);
