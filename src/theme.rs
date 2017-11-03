@@ -120,10 +120,10 @@ pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, 
     let mut canvas = ImageBuffer::<Rgba<u8>, _>::from_raw(w + 2 * ds, h + ds + dts, canvas).unwrap();
     // draw the borders
     let border_rectangles = [
-        (0, 0, w + 2 * ds, dts),      // top rectangle
-        (0, dts, ds, h),              // left rectangle
-        (w + ds, dts, ds, h),         // right rectangle
-        (0, h + dts, w + 2 * ds, ds), // bottom rectangle
+        (0, 0, w + 2 * ds, dts+1),      // top rectangle
+        (0, dts, ds+1, h),              // left rectangle
+        (w + ds-1, dts, ds+1, h),         // right rectangle
+        (0, h + dts-1, w + 2 * ds, ds+1), // bottom rectangle
     ];
 
     // We've built an ImageBuffer from a raw &[u8] buffer, and the wayland spec
