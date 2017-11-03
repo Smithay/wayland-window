@@ -160,6 +160,7 @@ impl Frame {
                 .expect("The pool cannot be defunct!");
             self.surface.attach(Some(&buffer), 0, 0);
             self.surface.commit();
+            return
         }
 
         let (w, h) = meta.dimensions;

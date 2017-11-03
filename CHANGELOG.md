@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.13.1 -- 2017-02-03
+
+- Bugfix: decorations were drawn even when disabled or fullscreen
+
 ## 0.13.0 -- 2017-02-03
 
 - Rework of the whole decoration implementation
