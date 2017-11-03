@@ -17,18 +17,18 @@ pub(crate) fn compute_location((x, y): (f64, f64), (w, h): (i32, i32)) -> Locati
                 Location::Top
             } else {
                 // check for buttons
-                if (w + DECORATION_SIZE >= 24) && (x > (w + DECORATION_SIZE - 24) as f64)
+                if (w >= 24) && (x > (w + DECORATION_SIZE - 24) as f64)
                     && (x <= (w + DECORATION_SIZE) as f64) && (y > DECORATION_SIZE as f64)
                     && (y <= (DECORATION_SIZE + 16) as f64)
                 {
                     Location::Button(UIButton::Close)
-                } else if (w + DECORATION_SIZE >= 56) && (x > (w + DECORATION_SIZE - 56) as f64)
+                } else if (w >= 56) && (x > (w + DECORATION_SIZE - 56) as f64)
                     && (x <= (w + DECORATION_SIZE - 32) as f64)
                     && (y > DECORATION_SIZE as f64)
                     && (y <= (DECORATION_SIZE + 16) as f64)
                 {
                     Location::Button(UIButton::Maximize)
-                } else if (w + DECORATION_SIZE >= 88) && (x > (w + DECORATION_SIZE - 88) as f64)
+                } else if (w >= 88) && (x > (w + DECORATION_SIZE - 88) as f64)
                     && (x <= (w + DECORATION_SIZE - 64) as f64)
                     && (y > DECORATION_SIZE as f64)
                     && (y <= (DECORATION_SIZE + 16) as f64)
@@ -91,10 +91,10 @@ pub(crate) fn pxcount(w: i32, h: i32) -> i32 {
 /// Draw the decorations on the rectangle
 ///
 /// Actual contents of the window will be drawn on top
-pub(crate) fn draw_contents<W: io::Write>(mut to: W, w: u32, h: u32, maximized: bool, maximizable: bool,
+pub(crate) fn draw_contents<W: io::Write>(mut to: W, w: u32, h: u32, activated: bool, maximized: bool, maximizable: bool,
                                           ptr_location: Location)
                                           -> io::Result<()> {
-    let drawn = draw_image(w, h, maximized, maximizable, ptr_location);
+    let drawn = draw_image(w, h, activated, maximized, maximizable, ptr_location);
     for p in drawn.pixels() {
         let val = ((p.data[3] as u32) << 24) // A
                 + ((p.data[0] as u32) << 16) // R
@@ -105,7 +105,7 @@ pub(crate) fn draw_contents<W: io::Write>(mut to: W, w: u32, h: u32, maximized: 
     Ok(())
 }
 
-fn draw_image(w: u32, h: u32, maximized: bool, maximizable: bool, ptr_location: Location)
+fn draw_image(w: u32, h: u32, activated: bool, maximized: bool, maximizable: bool, ptr_location: Location)
               -> ImageBuffer<Rgba<u8>, Vec<u8>> {
     let ds = DECORATION_SIZE as u32;
     let dts = DECORATION_TOP_SIZE as u32;
@@ -119,7 +119,11 @@ fn draw_image(w: u32, h: u32, maximized: bool, maximizable: bool, ptr_location: 
     ];
 
     // fill these rectangles with grey
-    let border_color = [0x60, 0x60, 0x60, 0xFF];
+    let border_color = if activated {
+        [0x80, 0x80, 0x80, 0xFF]
+    } else {
+        [0x60, 0x60, 0x60, 0xFF]
+    };
     for &(x, y, w, h) in &border_rectangles {
         for xx in x..(x + w) {
             for yy in y..(y + h) {
@@ -129,7 +133,7 @@ fn draw_image(w: u32, h: u32, maximized: bool, maximizable: bool, ptr_location: 
     }
 
     // draw the red close button
-    if w + ds >= 24 {
+    if w >= 24 {
         let button_color = if let Location::Button(UIButton::Close) = ptr_location {
             [0xFF, 0x40, 0x40, 0xFF]
         } else {
@@ -143,7 +147,7 @@ fn draw_image(w: u32, h: u32, maximized: bool, maximizable: bool, ptr_location: 
     }
 
     // draw the yellow maximize button
-    if w + ds >= 56 {
+    if w >= 56 {
         let button_color = if maximizable {
             if let Location::Button(UIButton::Maximize) = ptr_location {
                 [0xFF, 0xFF, 0x40, 0xFF]
@@ -161,7 +165,7 @@ fn draw_image(w: u32, h: u32, maximized: bool, maximizable: bool, ptr_location: 
     }
 
     // draw the green minimize button
-    if w + ds >= 88 {
+    if w >= 88 {
         let button_color = if let Location::Button(UIButton::Minimize) = ptr_location {
             [0x40, 0xFF, 0x40, 0xFF]
         } else {
