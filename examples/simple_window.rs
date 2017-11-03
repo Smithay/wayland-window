@@ -43,6 +43,7 @@ fn window_implementation() -> wayland_window::FrameImplementation<StateToken<Win
                 evqh.state().get_mut(token).newsize = Some((w, h))
             }
             println!("configure metadata: {:?}", config);
+            evqh.state().get_mut(token).refresh = true;
         },
         close: |evqh, token| {
             println!("close window");
@@ -188,6 +189,7 @@ fn main() {
 
     frame.set_title("My example window".into());
     frame.set_decorate(true);
+    frame.set_min_size(Some((10,10)));
     frame.refresh();
 
     loop {

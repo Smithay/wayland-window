@@ -29,7 +29,6 @@ impl Surface {
 pub(crate) fn xdg_toplevel_implementation<ID>() -> zxdg_toplevel_v6::Implementation<FrameIData<ID>> {
     zxdg_toplevel_v6::Implementation {
         configure: |evqh, idata, _, width, height, states| {
-            idata.meta.lock().unwrap().need_redraw = true;
             let newsize = if width == 0 || height == 0 {
                 // if either w or h is zero, then we get to choose our size
                 None
@@ -38,13 +37,17 @@ pub(crate) fn xdg_toplevel_implementation<ID>() -> zxdg_toplevel_v6::Implementat
             };
             let view: &[u32] =
                 unsafe { ::std::slice::from_raw_parts(states.as_ptr() as *const _, states.len() / 4) };
-            let configure = super::Configure::Xdg(
-                // we ignore unknown values
-                view.iter()
+            let states = view.iter()
                     .cloned()
                     .flat_map(zxdg_toplevel_v6::State::from_raw)
-                    .collect(),
-            );
+                    .collect::<Vec<_>>();
+            let activated = states.contains(&zxdg_toplevel_v6::State::Activated);
+            let configure = super::Configure::Xdg(states);
+            {
+                let mut meta = idata.meta.lock().unwrap();
+                meta.need_redraw = true;
+                meta.activated = activated;
+            }
             let mut user_idata = idata.idata.borrow_mut();
             (idata.implementation.configure)(evqh, &mut *user_idata, configure, newsize);
         },
