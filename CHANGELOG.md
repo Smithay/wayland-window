@@ -1,5 +1,10 @@
 # Change Log
 
+## Unreleased
+
+- Rework of the whole decoration implementation
+- Add buttons for minimize/maximize/close
+
 ## 0.12.0 -- 2017-10-29
 
 - Update to wayland-rs 0.12
