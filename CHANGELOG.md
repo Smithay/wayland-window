@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.13.0 -- 2017-02-03
+
 - Rework of the whole decoration implementation
 - Add buttons for minimize/maximize/close
 
