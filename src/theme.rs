@@ -21,10 +21,10 @@ macro_rules! auto_endian(
 // defining the color scheme
 const INACTIVE_BORDER: [u8; 4] = auto_endian!(0xFF, 0x60, 0x60, 0x60);
 const ACTIVE_BORDER: [u8; 4] = auto_endian!(0xFF, 0x80, 0x80, 0x80);
-const RED_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0xFF, 0x40, 0x40);
-const RED_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0xB0, 0x40, 0x40);
-const GREEN_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0x40, 0xFF, 0x40);
-const GREEN_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0x40, 0xB0, 0xF0);
+const RED_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0xB0, 0x40, 0x40);
+const RED_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0xFF, 0x40, 0x40);
+const GREEN_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0x40, 0xB0, 0x40);
+const GREEN_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0x40, 0xFF, 0x40);
 const YELLOW_BUTTON_REGULAR: [u8; 4] = auto_endian!(0xFF, 0xB0, 0xB0, 0x40);
 const YELLOW_BUTTON_HOVER: [u8; 4] = auto_endian!(0xFF, 0xFF, 0xFF, 0x40);
 const YELLOW_BUTTON_DISABLED: [u8; 4] = auto_endian!(0xFF, 0x80, 0x80, 0x20);
