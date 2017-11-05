@@ -1,5 +1,4 @@
 use {Location, UIButton};
-use image::{ImageBuffer, Rgba};
 
 const DECORATION_SIZE: i32 = 8;
 const DECORATION_TOP_SIZE: i32 = 32;
@@ -117,7 +116,7 @@ pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, 
                             maximizable: bool, ptr_location: Location) {
     let ds = DECORATION_SIZE as u32;
     let dts = DECORATION_TOP_SIZE as u32;
-    let mut canvas = ImageBuffer::<Rgba<u8>, _>::from_raw(w + 2 * ds, h + ds + dts, canvas).unwrap();
+    let mut canvas = Canvas::new(w + 2 * ds, h + ds + dts, canvas);
     // draw the borders
     let border_rectangles = [
         (0, 0, w + 2 * ds, dts+1),      // top rectangle
@@ -140,7 +139,7 @@ pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, 
     for &(x, y, w, h) in &border_rectangles {
         for xx in x..(x + w) {
             for yy in y..(y + h) {
-                canvas.put_pixel(xx, yy, Rgba { data: border_color });
+                canvas.put_pixel(xx, yy, border_color);
             }
         }
     }
@@ -154,7 +153,7 @@ pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, 
         };
         for xx in (w + ds - 24)..(w + ds) {
             for yy in ds..(ds + 16) {
-                canvas.put_pixel(xx, yy, Rgba { data: button_color });
+                canvas.put_pixel(xx, yy, button_color);
             }
         }
     }
@@ -172,7 +171,7 @@ pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, 
         };
         for xx in (w + ds - 56)..(w + ds - 32) {
             for yy in ds..(ds + 16) {
-                canvas.put_pixel(xx, yy, Rgba { data: button_color });
+                canvas.put_pixel(xx, yy, button_color);
             }
         }
     }
@@ -186,8 +185,29 @@ pub(crate) fn draw_contents(canvas: &mut [u8], w: u32, h: u32, activated: bool, 
         };
         for xx in (w + ds - 88)..(w + ds - 64) {
             for yy in ds..(ds + 16) {
-                canvas.put_pixel(xx, yy, Rgba { data: button_color });
+                canvas.put_pixel(xx, yy, button_color);
             }
         }
+    }
+}
+
+struct Canvas<'a> {
+    width: u32,
+    contents: &'a mut [u8]
+}
+
+impl<'a> Canvas<'a> {
+    fn new(width: u32, height: u32, contents: &mut[u8]) -> Canvas {
+        debug_assert!(contents.len() == (width*height*4) as usize);
+        Canvas { width, contents }
+    }
+
+    #[inline]
+    fn put_pixel(&mut self, x: u32, y: u32, val: [u8; 4]) {
+        let idx = ((y*self.width + x)*4) as usize;
+        self.contents[idx + 0] = val[0];
+        self.contents[idx + 1] = val[1];
+        self.contents[idx + 2] = val[2];
+        self.contents[idx + 3] = val[3];
     }
 }

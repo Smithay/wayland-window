@@ -125,7 +125,6 @@
 
 #![warn(missing_docs)]
 
-extern crate image;
 extern crate memmap;
 extern crate tempfile;
 extern crate wayland_client;
