@@ -2,16 +2,20 @@
 
 ## Unreleased
 
-## 0.13.2 -- 2017-02-05
+## 0.13.3 -- 2018-03-26
+
+- Update tempfile dependency
+
+## 0.13.2 -- 2018-02-05
 
 - Fix buttons colors
 - Drop image dependency
 
-## 0.13.1 -- 2017-02-03
+## 0.13.1 -- 2018-02-03
 
 - Bugfix: decorations were drawn even when disabled or fullscreen
 
-## 0.13.0 -- 2017-02-03
+## 0.13.0 -- 2018-02-03
 
 - Rework of the whole decoration implementation
 - Add buttons for minimize/maximize/close
