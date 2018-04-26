@@ -1,3 +1,7 @@
+**Deprecation**: this library is deprecated in favor of
+[Smithay's Client Toolkit](https://github.com/Smithay/client-toolkit), and will not be
+ported to wayland-client 0.20.
+
 # wayland-window
 A simple window-decorations library built on top of wayland-client.
 
